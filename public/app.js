@@ -1,17 +1,70 @@
-// Toast helper
-function toast(msg) {
+// Toast helper with different types
+function toast(msg, type = 'info') {
   const t = document.createElement('div');
-  t.className = 'toast';
+  t.className = `toast toast--${type}`;
   t.textContent = msg;
   (document.getElementById('toasts') || document.body).appendChild(t);
-  setTimeout(() => t.remove(), 2400);
+  setTimeout(() => t.remove(), type === 'error' ? 4000 : 2400);
+}
+
+// Retry wrapper for API calls
+async function apiCall(url, options = {}, maxRetries = 3) {
+  let lastError;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => ({ ok: false, error: 'Invalid response' }));
+      
+      if (!response.ok && !data.ok) {
+        // Check if it's a database lock error that we should retry
+        const isRetryableError = data.error && (
+          data.error.includes('locked') || 
+          data.error.includes('busy') ||
+          data.error.includes('SQLITE_BUSY') ||
+          data.error.includes('SQLITE_LOCKED')
+        );
+        
+        if (isRetryableError && i < maxRetries - 1) {
+          const delay = Math.pow(2, i) * 100 + Math.random() * 100; // Exponential backoff with jitter
+          console.log(`API retry ${i + 1}/${maxRetries} after ${Math.round(delay)}ms for:`, url);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      
+      return data;
+    } catch (error) {
+      lastError = error;
+      
+      // Network errors - retry
+      if ((error.name === 'TypeError' || error.message.includes('fetch')) && i < maxRetries - 1) {
+        const delay = Math.pow(2, i) * 200;
+        console.log(`Network retry ${i + 1}/${maxRetries} after ${delay}ms for:`, url);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // Don't retry other errors
+      break;
+    }
+  }
+  
+  throw lastError;
 }
 
 let ALL_FOLDERS = [];
 async function refreshFolders() {
-  const res = await fetch('/folders');
-  const data = await res.json().catch(() => ({}));
-  ALL_FOLDERS = data.folders || [];
+  try {
+    const data = await apiCall('/folders');
+    ALL_FOLDERS = data.folders || [];
+  } catch (error) {
+    console.error('Failed to load folders:', error);
+    toast(`Failed to load folders: ${error.message}`, 'error');
+    ALL_FOLDERS = [];
+  }
 
   const renderList = (items) => {
     const list = document.getElementById('folders');
@@ -54,15 +107,19 @@ async function refreshFolders() {
             nameWrap.replaceChildren(nameEl);
             return;
           }
-          const resp = await fetch(`/admin/folder/${encodeURIComponent(f.name)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ displayName: newName })
-          });
-          const out = await resp.json().catch(()=>({ ok:false }));
-          if (!out.ok) { toast('Rename failed'); nameWrap.replaceChildren(nameEl); return; }
-          await refreshFolders();
-          toast('Folder renamed');
+          try {
+            const out = await apiCall(`/admin/folder/${encodeURIComponent(f.name)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ displayName: newName })
+            });
+            await refreshFolders();
+            toast('Folder renamed');
+          } catch (error) {
+            console.error('Rename failed:', error);
+            toast(`Rename failed: ${error.message}`, 'error');
+            nameWrap.replaceChildren(nameEl);
+          }
         };
         input.addEventListener('keydown', (ev) => {
           if (ev.key === 'Enter') commit();
@@ -79,16 +136,19 @@ async function refreshFolders() {
         e.stopPropagation();
         const sure = confirm(`Delete folder "${f.name}" and all its documents? This cannot be undone.`);
         if (!sure) return;
-        const res = await fetch(`/admin/folder/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
-        const out = await res.json().catch(()=>({ ok:false }));
-        if (!out.ok) { toast('Failed to delete folder'); return; }
-        toast('Folder deleted');
-        const select = document.getElementById('folderSelect');
-        if (select && select.value === f.name) {
-          select.value = '';
-          document.getElementById('docs').textContent = 'Select a folder to view documents.';
+        try {
+          await apiCall(`/admin/folder/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+          toast('Folder deleted');
+          const select = document.getElementById('folderSelect');
+          if (select && select.value === f.name) {
+            select.value = '';
+            document.getElementById('docs').innerHTML = '<div class="text-center py-12"><p class="text-muted">Select a folder to view documents.</p></div>';
+          }
+          refreshFolders();
+        } catch (error) {
+          console.error('Delete failed:', error);
+          toast(`Failed to delete folder: ${error.message}`, 'error');
         }
-        refreshFolders();
       });
 
       actions.appendChild(editBtn);
@@ -143,51 +203,118 @@ async function refreshFolders() {
 }
 
 document.getElementById('createFolderBtn').addEventListener('click', async () => {
-  const name = document.getElementById('folderName').value.trim();
-  if (!name) { toast('Enter folder name'); return; }
-  await fetch('/admin/folder', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
-  });
-  document.getElementById('folderName').value = '';
-  refreshFolders();
-  toast('Folder created');
+  const nameInput = document.getElementById('folderName');
+  const createBtn = document.getElementById('createFolderBtn');
+  const name = nameInput.value.trim();
+  
+  if (!name) { 
+    toast('Enter folder name', 'error'); 
+    nameInput.focus();
+    return; 
+  }
+  
+  // Disable button during creation
+  createBtn.disabled = true;
+  createBtn.textContent = 'Creating...';
+  
+  try {
+    const result = await apiCall('/admin/folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    
+    nameInput.value = '';
+    await refreshFolders();
+    
+    if (result.created) {
+      toast('Folder created successfully');
+    } else {
+      toast('Folder already exists');
+    }
+  } catch (error) {
+    console.error('Folder creation failed:', error);
+    toast(`Failed to create folder: ${error.message}`, 'error');
+  } finally {
+    // Re-enable button
+    createBtn.disabled = false;
+    createBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Create';
+  }
+});
+
+// Add keyboard support for folder creation
+document.getElementById('folderName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('createFolderBtn').click();
+  }
 });
 
 document.getElementById('uploadBtn').addEventListener('click', async () => {
   const category = document.getElementById('folderSelect').value.trim();
   const fileInput = document.getElementById('file');
-  if (!category || !fileInput.files.length) { toast('Select folder and choose a PDF'); return; }
+  const uploadBtn = document.getElementById('uploadBtn');
   const status = document.getElementById('status');
   const progress = document.getElementById('progress');
-  status.style.color = '';
-  status.textContent = '';
+  
+  if (!category || !fileInput.files.length) { 
+    toast('Select folder and choose a PDF', 'error'); 
+    return; 
+  }
+  
   const f = fileInput.files[0];
   const isPdf = f && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-  if (!isPdf) { status.textContent = 'Only PDF files are supported.'; return; }
-  const form = new FormData();
-  form.append('folder', category);
-  form.append('file', f);
-  // show indeterminate progress
-  if (progress) progress.style.display = 'block';
-  const res = await fetch('/admin/upload', { method: 'POST', body: form });
-  const data = await res.json().catch(()=>({}));
-  if (!data.ok) {
-    status.textContent = data.error === 'pdf_only' ? 'Only PDF files are supported.' : (data.error || 'Upload failed');
-    if (progress) progress.style.display = 'none';
-    return;
+  if (!isPdf) { 
+    status.textContent = 'Only PDF files are supported.';
+    status.style.color = 'var(--destructive)';
+    toast('Only PDF files are supported', 'error');
+    return; 
   }
-  status.style.color = 'var(--success)';
-  status.textContent = `Upload successful - ${data.document.fileName} (${Math.round(data.document.fileSize/1024)}KB)`;
-  document.getElementById('portalUrl').textContent = data.portalUrl || '-';
-  const copyBtn = document.getElementById('copyUrlBtn');
-  if (copyBtn) copyBtn.disabled = !data.portalUrl;
-  fileInput.value = '';
-  if (category) loadDocuments(category);
-  toast('Uploaded');
-  if (progress) progress.style.display = 'none';
-  updateUploadState();
+  
+  // Disable upload button and show progress
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = 'Uploading...';
+  status.style.color = '';
+  status.textContent = 'Uploading...';
+  if (progress) progress.style.display = 'block';
+  
+  try {
+    const form = new FormData();
+    form.append('folder', category);
+    form.append('file', f);
+    
+    const data = await apiCall('/admin/upload', { 
+      method: 'POST', 
+      body: form 
+    }, 5); // More retries for uploads
+    
+    status.style.color = 'var(--success)';
+    status.textContent = `Upload successful - ${data.document.fileName} (${Math.round(data.document.fileSize/1024)}KB)`;
+    document.getElementById('portalUrl').textContent = data.portalUrl || '-';
+    const copyBtn = document.getElementById('copyUrlBtn');
+    if (copyBtn) copyBtn.disabled = !data.portalUrl;
+    fileInput.value = '';
+    document.getElementById('fileName').textContent = 'No file selected';
+    
+    if (category) loadDocuments(category);
+    toast('Upload successful');
+    
+  } catch (error) {
+    console.error('Upload failed:', error);
+    const errorMsg = error.message.includes('pdf_only') ? 'Only PDF files are supported.' : 
+                     error.message.includes('file_too_large') ? 'File too large (max 50MB).' :
+                     error.message.includes('locked') ? 'Database busy, please try again.' :
+                     `Upload failed: ${error.message}`;
+    status.textContent = errorMsg;
+    status.style.color = 'var(--destructive)';
+    toast(errorMsg, 'error');
+  } finally {
+    // Re-enable upload button and hide progress
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7,10 12,15 17,10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Upload';
+    if (progress) progress.style.display = 'none';
+    updateUploadState();
+  }
 });
 
 refreshFolders();
@@ -195,20 +322,26 @@ refreshFolders();
 let CURRENT_DOCS = [];
 async function loadDocuments(folder) {
   const docsRoot = document.getElementById('docs');
-  docsRoot.textContent = 'Loading...';
-  // Use admin endpoint to get ALL versions of documents
-  const res = await fetch(`/admin/folder/${encodeURIComponent(folder)}/documents`);
-  const data = await res.json().catch(()=>({ ok:false }));
-  if (!data.ok) {
-    docsRoot.textContent = 'Failed to load documents.';
-    return;
+  docsRoot.innerHTML = '<div class="text-center py-12"><p class="text-muted">Loading...</p></div>';
+  
+  try {
+    // Use admin endpoint to get ALL versions of documents
+    const data = await apiCall(`/admin/folder/${encodeURIComponent(folder)}/documents`);
+    
+    if (!data.documents || !data.documents.length) {
+      docsRoot.innerHTML = '<div class="text-center py-12"><p class="text-muted">No documents uploaded yet.</p></div>';
+      CURRENT_DOCS = [];
+      return;
+    }
+    
+    CURRENT_DOCS = data.documents;
+    renderDocuments(folder);
+  } catch (error) {
+    console.error('Failed to load documents:', error);
+    docsRoot.innerHTML = `<div class="text-center py-12"><p class="text-muted text-destructive">Failed to load documents: ${error.message}</p></div>`;
+    toast(`Failed to load documents: ${error.message}`, 'error');
+    CURRENT_DOCS = [];
   }
-  if (!data.documents || !data.documents.length) {
-    docsRoot.textContent = 'No documents uploaded yet.';
-    return;
-  }
-  CURRENT_DOCS = data.documents;
-  renderDocuments(folder);
 }
 
 function renderDocuments(folder) {
@@ -272,11 +405,20 @@ function renderDocuments(folder) {
     del.addEventListener('click', async () => {
       const versionText = isLatest ? `latest version v${doc.version}` : `version v${doc.version}`;
       if (!confirm(`Delete ${versionText} of ${doc.file_name}?`)) return;
-      const resp = await fetch(`/admin/document/${encodeURIComponent(doc.id)}`, { method: 'DELETE' });
-      const out = await resp.json().catch(()=>({ ok:false }));
-      if (!out.ok) { toast('Delete failed'); return; }
-      toast(`Deleted v${doc.version}`);
-      loadDocuments(folder);
+      
+      del.disabled = true;
+      del.textContent = 'Deleting...';
+      
+      try {
+        await apiCall(`/admin/document/${encodeURIComponent(doc.id)}`, { method: 'DELETE' });
+        toast(`Deleted v${doc.version}`);
+        loadDocuments(folder);
+      } catch (error) {
+        console.error('Delete failed:', error);
+        toast(`Delete failed: ${error.message}`, 'error');
+        del.disabled = false;
+        del.textContent = 'Delete';
+      }
     });
     
     right.appendChild(open);
@@ -319,33 +461,65 @@ dropZone.addEventListener('click', () => {
 dropZone.addEventListener('drop', async (e) => {
   const category = document.getElementById('folderSelect').value.trim();
   const file = e.dataTransfer?.files?.[0];
-  if (!category || !file) { toast('Set folder and drop a PDF'); return; }
   const status = document.getElementById('status');
   const progress = document.getElementById('progress');
-  status.style.color = '';
-  status.textContent = '';
-  const isPdf = file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
-  if (!isPdf) { status.textContent = 'Only PDF files are supported.'; return; }
-  const form = new FormData();
-  form.append('folder', category);
-  form.append('file', file);
-  if (progress) progress.style.display = 'block';
-  const res = await fetch('/admin/upload', { method: 'POST', body: form });
-  const data = await res.json().catch(()=>({}));
-  if (!data.ok) {
-    const errorMsg = data.error === 'pdf_only' ? 'Only PDF files are supported.' : 
-                     data.error === 'file_too_large' ? 'File too large (max 50MB).' :
-                     (data.error || 'Upload failed');
-    status.textContent = errorMsg;
-    if (progress) progress.style.display = 'none';
-    return;
+  const uploadBtn = document.getElementById('uploadBtn');
+  
+  if (!category || !file) { 
+    toast('Select folder first, then drop a PDF', 'error'); 
+    return; 
   }
-  status.style.color = 'var(--success)';
-  status.textContent = `Upload successful - ${data.document.fileName} (${Math.round(data.document.fileSize/1024)}KB)`;
-  document.getElementById('portalUrl').textContent = data.portalUrl || '-';
-  if (category) loadDocuments(category);
-  toast('Uploaded');
-  if (progress) progress.style.display = 'none';
+  
+  const isPdf = file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
+  if (!isPdf) { 
+    status.textContent = 'Only PDF files are supported.';
+    status.style.color = 'var(--destructive)';
+    toast('Only PDF files are supported', 'error');
+    return; 
+  }
+  
+  // Update UI to show upload in progress
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = 'Uploading...';
+  status.style.color = '';
+  status.textContent = 'Uploading via drag & drop...';
+  if (progress) progress.style.display = 'block';
+  
+  try {
+    const form = new FormData();
+    form.append('folder', category);
+    form.append('file', file);
+    
+    const data = await apiCall('/admin/upload', { 
+      method: 'POST', 
+      body: form 
+    }, 5); // More retries for uploads
+    
+    status.style.color = 'var(--success)';
+    status.textContent = `Upload successful - ${data.document.fileName} (${Math.round(data.document.fileSize/1024)}KB)`;
+    document.getElementById('portalUrl').textContent = data.portalUrl || '-';
+    const copyBtn = document.getElementById('copyUrlBtn');
+    if (copyBtn) copyBtn.disabled = !data.portalUrl;
+    
+    if (category) loadDocuments(category);
+    toast('Upload successful');
+    
+  } catch (error) {
+    console.error('Drag & drop upload failed:', error);
+    const errorMsg = error.message.includes('pdf_only') ? 'Only PDF files are supported.' : 
+                     error.message.includes('file_too_large') ? 'File too large (max 50MB).' :
+                     error.message.includes('locked') ? 'Database busy, please try again.' :
+                     `Upload failed: ${error.message}`;
+    status.textContent = errorMsg;
+    status.style.color = 'var(--destructive)';
+    toast(errorMsg, 'error');
+  } finally {
+    // Re-enable upload button and hide progress
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7,10 12,15 17,10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Upload';
+    if (progress) progress.style.display = 'none';
+    updateUploadState();
+  }
 });
 
 // React to folder dropdown change

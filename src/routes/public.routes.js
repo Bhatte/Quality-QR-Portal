@@ -222,6 +222,115 @@ router.get('/debug/db-status', (req, res) => {
   }
 });
 
+// Comprehensive functionality test
+router.post('/debug/full-test', async (req, res) => {
+  const testResults = {
+    timestamp: new Date().toISOString(),
+    tests: []
+  };
+  
+  try {
+    const db = require('../services/database.service');
+    const testFolderName = `fulltest-${Date.now()}`;
+    
+    // Test 1: Create folder
+    try {
+      const folder = db.createFolder({ name: testFolderName, displayName: 'Full Test Folder' });
+      testResults.tests.push({ 
+        name: 'Create Folder', 
+        status: 'PASS', 
+        result: folder 
+      });
+    } catch (error) {
+      testResults.tests.push({ 
+        name: 'Create Folder', 
+        status: 'FAIL', 
+        error: error.message 
+      });
+    }
+    
+    // Test 2: List folders
+    try {
+      const folders = db.getFolders();
+      const hasTestFolder = folders.some(f => f.name === testFolderName);
+      testResults.tests.push({ 
+        name: 'List Folders', 
+        status: hasTestFolder ? 'PASS' : 'FAIL', 
+        result: { totalFolders: folders.length, hasTestFolder } 
+      });
+    } catch (error) {
+      testResults.tests.push({ 
+        name: 'List Folders', 
+        status: 'FAIL', 
+        error: error.message 
+      });
+    }
+    
+    // Test 3: Get folder by name
+    try {
+      const folder = db.getFolderByName(testFolderName);
+      testResults.tests.push({ 
+        name: 'Get Folder By Name', 
+        status: folder ? 'PASS' : 'FAIL', 
+        result: folder 
+      });
+    } catch (error) {
+      testResults.tests.push({ 
+        name: 'Get Folder By Name', 
+        status: 'FAIL', 
+        error: error.message 
+      });
+    }
+    
+    // Test 4: Update folder display name
+    try {
+      const updateResult = db.updateFolderDisplayName(testFolderName, 'Updated Test Folder');
+      const updatedFolder = db.getFolderByName(testFolderName);
+      testResults.tests.push({ 
+        name: 'Update Folder Display Name', 
+        status: updatedFolder?.displayName === 'Updated Test Folder' ? 'PASS' : 'FAIL', 
+        result: { updateResult, updatedFolder } 
+      });
+    } catch (error) {
+      testResults.tests.push({ 
+        name: 'Update Folder Display Name', 
+        status: 'FAIL', 
+        error: error.message 
+      });
+    }
+    
+    // Test 5: Clean up
+    try {
+      const deleteResult = db.deleteFolderByName(testFolderName);
+      testResults.tests.push({ 
+        name: 'Delete Folder', 
+        status: 'PASS', 
+        result: deleteResult 
+      });
+    } catch (error) {
+      testResults.tests.push({ 
+        name: 'Delete Folder', 
+        status: 'FAIL', 
+        error: error.message 
+      });
+    }
+    
+    const passCount = testResults.tests.filter(t => t.status === 'PASS').length;
+    const totalCount = testResults.tests.length;
+    
+    res.json({ 
+      ok: true, 
+      summary: `${passCount}/${totalCount} tests passed`,
+      allPassed: passCount === totalCount,
+      testResults 
+    });
+    
+  } catch (error) {
+    console.error('[DEBUG] Full test error:', error);
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
 // Home: list folders
 router.get('/', (req, res) => {
   const folders = db.getFolders();

@@ -57,8 +57,12 @@ module.exports = {
   },
 
   getFolderByName(name) {
-    const row = db.prepare('SELECT * FROM folders WHERE name = ?').get(name);
-    return row ? mapFolder(row) : null;
+    const getFolderWithRetry = withRetry(() => {
+      const row = db.prepare('SELECT * FROM folders WHERE name = ?').get(name);
+      return row ? mapFolder(row) : null;
+    });
+    
+    return getFolderWithRetry();
   },
 
   createFolder({ name, displayName = null, parentId = null }) {
@@ -105,11 +109,20 @@ module.exports = {
   },
 
   addDocument({ folderId, fileName, fileContent, fileSize, mimeType, version = 1, uploadedBy = null, notes = null }) {
-    const stmt = db.prepare(
-      'INSERT INTO documents (folder_id, file_name, file_content, file_size, mime_type, version, uploaded_by, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-    const info = stmt.run(folderId, fileName, fileContent, fileSize, mimeType, version, uploadedBy, notes);
-    return this.getDocumentById(info.lastInsertRowid);
+    const addDocumentWithRetry = withRetry(() => {
+      const transaction = db.transaction(() => {
+        const stmt = db.prepare(
+          'INSERT INTO documents (folder_id, file_name, file_content, file_size, mime_type, version, uploaded_by, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        const info = stmt.run(folderId, fileName, fileContent, fileSize, mimeType, version, uploadedBy, notes);
+        return info.lastInsertRowid;
+      });
+      
+      const insertId = transaction();
+      return this.getDocumentById(insertId);
+    });
+    
+    return addDocumentWithRetry();
   },
 
   getDocumentById(id) {
