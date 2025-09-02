@@ -304,7 +304,7 @@ h4 {
 /* Grid Layout */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: var(--space-6);
 }
 
@@ -757,7 +757,7 @@ h4 {
 #folders li.folder-item .folder-actions {
   margin-left: auto !important;
   flex-shrink: 0;
-  padding-left: var(--space-8); /* ensure visible separation from name */
+  padding-left: var(--space-4);
 }
 
 /* Icon button styles */
@@ -880,7 +880,42 @@ h4 {
   border: 0;
 }
 
+/* Upload Row Layout */
+.upload-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-btn {
+  flex-shrink: 0;
+}
+
+/* Admin Header Actions */
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
 /* Responsive Design */
+@media (max-width: 1024px) {
+  .admin-grid {
+    grid-template-columns: 280px 1fr;
+    gap: var(--space-6);
+  }
+}
+
 @media (max-width: 768px) {
   .container {
     padding: 0 var(--space-4);
@@ -888,11 +923,23 @@ h4 {
   
   .grid {
     grid-template-columns: 1fr;
+    gap: var(--space-4);
   }
   
   .admin-grid {
     grid-template-columns: 1fr;
     gap: var(--space-4);
+  }
+  
+  .brand {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  
+  .admin-header-actions {
+    margin-left: 0;
+    margin-top: var(--space-2);
+    flex-wrap: wrap;
   }
   
   .brand__title {
@@ -902,5 +949,98 @@ h4 {
   .admin-row {
     flex-direction: column;
     align-items: stretch;
+  }
+  
+  .upload-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .file-name {
+    text-align: center;
+    padding: var(--space-2);
+    background: var(--muted);
+    border-radius: var(--radius);
+  }
+  
+  .search {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  
+  .card {
+    padding: var(--space-4);
+  }
+  
+  .admin-card {
+    padding: var(--space-4);
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 0 var(--space-3);
+  }
+  
+  .brand {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--space-3);
+  }
+  
+  .brand__title {
+    font-size: var(--text-base);
+  }
+  
+  .grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+  
+  .card {
+    padding: var(--space-3);
+  }
+  
+  .admin-card {
+    padding: var(--space-3);
+  }
+  
+  .btn {
+    height: 40px;
+    font-size: var(--text-xs);
+  }
+  
+  .admin-input {
+    height: 40px;
+  }
+  
+  h1 {
+    font-size: var(--text-2xl);
+  }
+  
+  h2 {
+    font-size: var(--text-xl);
+  }
+  
+  h3 {
+    font-size: var(--text-lg);
+  }
+  
+  /* Folder list adjustments for small screens */
+  #folders li.folder-item .folder-actions {
+    padding-left: var(--space-2);
+  }
+  
+  .icon-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+  }
+  
+  /* Make admin header more compact */
+  .admin-header-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
   }
 }

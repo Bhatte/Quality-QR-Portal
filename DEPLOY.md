@@ -188,6 +188,35 @@ If the above doesn't work:
 
 ### 5.5 Troubleshooting
 
+#### Database/Folder Creation Issues
+If folders appear to be created but don't show up in the UI:
+
+**Step 1: Check Database Status**
+1. Visit `https://your-app-name.azurewebsites.net/debug/info`
+2. This will show you database path, file system status, and current folder count
+3. Look for any errors in the response
+
+**Step 2: Check App Logs**
+1. In Azure Portal, go to your Web App
+2. Click "Log stream" in the left menu
+3. Try creating a folder while watching the logs
+4. Look for any error messages
+
+**Step 3: Verify Environment Variables**
+1. Go to Web App → Configuration → Application settings
+2. Verify `SQLITE_DB_PATH` is set to `/home/data/quality.sqlite`
+3. Check that other settings are correct
+
+**Step 4: Test Database Connectivity**
+1. Visit `https://your-app-name.azurewebsites.net/readyz`
+2. Should return `{"ok":true,"status":"ready"}`
+3. If not, there's a database connection issue
+
+**Common Database Issues:**
+- **Permission errors**: The `/home/data/` directory should be writable in Azure App Service
+- **Path issues**: Make sure `SQLITE_DB_PATH` uses forward slashes: `/home/data/quality.sqlite`
+- **Memory issues**: B1/B2 App Service Plan should have sufficient memory for SQLite
+
 #### Authentication Issues
 The correct Easy Auth configuration should be:
 
@@ -208,13 +237,113 @@ This means the app code change hasn't been deployed yet. Redeploy your app with 
 
 #### Other Common Issues
 1. **App not starting**: Check "Configuration" → "Application settings"
-2. **Database errors**: Verify `SQLITE_DB_PATH` setting  
-3. **Log checking**: Go to Web App → "Log stream" for real-time logs
-4. **Multiple admins**: Use comma-separated emails in `ADMIN_EMAILS` (no spaces around commas)
+2. **Multiple admins**: Use comma-separated emails in `ADMIN_EMAILS` (no spaces around commas)
+3. **Manual login**: Visit `https://your-app-name.azurewebsites.net/.auth/login/aad`
 
-#### Manual Login URL
-If automatic redirect doesn't work, you can always login manually by visiting:
-`https://your-app-name.azurewebsites.net/.auth/login/aad`
+#### SSH Troubleshooting (Advanced)
+If you have SSH access to your Azure App Service:
+
+**Connect to SSH:**
+1. In Azure Portal, go to your Web App
+2. Click "SSH" in the left menu or "Advanced Tools" → "Go" → "SSH"
+3. Or use direct SSH if configured
+
+**Check Database and File System:**
+```bash
+# Navigate to app directory
+cd /home/site/wwwroot
+
+# Check if data directory exists and permissions
+ls -la /home/data/
+ls -la /home/data/quality.sqlite
+
+# Check current working directory and app files
+pwd
+ls -la
+
+# Check environment variables
+env | grep SQLITE
+env | grep NODE_ENV
+
+# Check if Node.js process is running
+ps aux | grep node
+
+# Check app logs
+tail -f /home/LogFiles/Application/console.log
+
+# Test database file creation manually
+touch /home/data/test.txt
+ls -la /home/data/
+
+# Check disk space
+df -h
+
+# Check memory usage
+free -m
+```
+
+**Manual Database Test:**
+```bash
+# Test database directly with Node.js
+node -e "
+const Database = require('better-sqlite3');
+const db = new Database('/home/data/quality.sqlite');
+console.log('Database opened successfully');
+
+// Check tables
+const tables = db.prepare('SELECT name FROM sqlite_master WHERE type=\"table\"').all();
+console.log('Tables:', tables);
+
+// Check folders
+const folders = db.prepare('SELECT * FROM folders').all();
+console.log('Current folders:', folders);
+
+// Test insert
+try {
+  const result = db.prepare('INSERT INTO folders (name, display_name) VALUES (?, ?)').run('test-manual', 'Manual Test');
+  console.log('Insert result:', result);
+  
+  const check = db.prepare('SELECT * FROM folders WHERE name = ?').get('test-manual');
+  console.log('Verification:', check);
+  
+  db.prepare('DELETE FROM folders WHERE name = ?').run('test-manual');
+  console.log('Cleanup completed');
+} catch (e) {
+  console.error('Insert test failed:', e);
+}
+
+db.close();
+"
+
+# Check database file integrity
+file /home/data/quality.sqlite
+
+# Check database file size and permissions
+ls -lah /home/data/quality.sqlite
+
+# Monitor logs while testing folder creation
+tail -f /home/LogFiles/Application/console.log &
+# Then in another terminal/session, test folder creation via the web UI
+```
+
+**Check App Service Logs:**
+```bash
+# Application logs
+tail -f /home/LogFiles/Application/console.log
+
+# System logs  
+tail -f /home/LogFiles/System/docker.log
+
+# Check for any permission errors
+grep -i "permission\|denied\|error" /home/LogFiles/Application/console.log
+```
+
+#### Force App Restart
+If issues persist:
+1. Go to Web App → Overview
+2. Click "Restart" 
+3. Wait for restart to complete
+4. Test functionality again
 
 ## 6) Operational Notes
 

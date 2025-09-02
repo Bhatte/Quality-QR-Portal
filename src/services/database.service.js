@@ -14,6 +14,7 @@ function mapFolder(row) {
 module.exports = {
   getFolders() {
     const rows = db.prepare('SELECT * FROM folders ORDER BY name ASC').all();
+    console.log(`[DB] getFolders() returned ${rows.length} rows:`, rows);
     return rows.map(mapFolder);
   },
 
@@ -23,11 +24,18 @@ module.exports = {
   },
 
   createFolder({ name, displayName = null, parentId = null }) {
+    console.log(`[DB] Creating folder: name="${name}", displayName="${displayName}", parentId="${parentId}"`);
+    
     const stmt = db.prepare(
       'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
     );
     const info = stmt.run(name, displayName, parentId);
-    return this.getFolderById(info.lastInsertRowid);
+    console.log(`[DB] Insert result:`, info);
+    
+    const folder = this.getFolderById(info.lastInsertRowid);
+    console.log(`[DB] Retrieved folder after creation:`, folder);
+    
+    return folder;
   },
 
   getFolderById(id) {

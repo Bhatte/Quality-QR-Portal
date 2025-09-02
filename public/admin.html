@@ -68,7 +68,7 @@
           <h1 class="brand__title">QR Portal — Admin</h1>
           <p class="subtitle">Manage folders, upload PDFs, and handle versions</p>
         </div>
-        <div class="flex items-center gap-3" style="margin-left: auto;">
+        <div class="admin-header-actions">
           <div class="badge">Administrator</div>
           <a href="/" class="btn btn--outline btn--sm">View Portal</a>
         </div>
@@ -127,7 +127,7 @@
           
           <div>
             <label class="block text-sm font-medium mb-2">PDF Document</label>
-            <div class="flex gap-3 items-center">
+            <div class="upload-row">
               <input type="file" id="file" class="visually-hidden" accept="application/pdf,.pdf" />
               <label for="file" class="btn btn--outline">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -139,8 +139,8 @@
                 </svg>
                 Choose PDF
               </label>
-              <span id="fileName" class="text-sm text-muted flex-1">No file selected</span>
-              <button id="uploadBtn" class="btn btn--primary" disabled>
+              <span id="fileName" class="text-sm text-muted file-name">No file selected</span>
+              <button id="uploadBtn" class="btn btn--primary upload-btn" disabled>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7,10 12,15 17,10"></polyline>

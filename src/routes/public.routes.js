@@ -16,6 +16,115 @@ router.get('/readyz', (req, res) => {
   }
 });
 
+// Diagnostic endpoint for troubleshooting
+router.get('/debug/info', (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    
+    const dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), 'data', 'quality.sqlite');
+    const dbDir = path.dirname(dbPath);
+    
+    const info = {
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        SQLITE_DB_PATH: process.env.SQLITE_DB_PATH,
+        actualDbPath: dbPath,
+        dbDirectory: dbDir
+      },
+      filesystem: {
+        dbDirectoryExists: fs.existsSync(dbDir),
+        dbFileExists: fs.existsSync(dbPath),
+        currentWorkingDir: process.cwd()
+      },
+      database: {
+        folderCount: 0,
+        documentCount: 0,
+        error: null,
+        tables: [],
+        folderTableSchema: [],
+        rawFolderQuery: null
+      }
+    };
+    
+    try {
+      const dbInstance = require('../db/init');
+      
+      // Check what tables exist
+      const tables = dbInstance.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+      info.database.tables = tables.map(t => t.name);
+      
+      // Check folders table schema
+      const schema = dbInstance.prepare("PRAGMA table_info(folders)").all();
+      info.database.folderTableSchema = schema;
+      
+      // Raw folder query
+      const rawFolders = dbInstance.prepare('SELECT * FROM folders').all();
+      info.database.rawFolderQuery = rawFolders;
+      
+      const folders = db.getFolders();
+      info.database.folderCount = folders.length;
+      info.database.folders = folders;
+      
+      // Try to get document count
+      const docCount = dbInstance.prepare('SELECT COUNT(*) as count FROM documents').get();
+      info.database.documentCount = docCount.count;
+      
+      // Test database write capability
+      try {
+        const testResult = dbInstance.prepare("INSERT INTO folders (name, display_name) VALUES ('__test__', 'Test Folder')").run();
+        const testFolder = dbInstance.prepare("SELECT * FROM folders WHERE name = '__test__'").get();
+        dbInstance.prepare("DELETE FROM folders WHERE name = '__test__'").run();
+        info.database.writeTest = { success: true, insertId: testResult.lastInsertRowid, retrieved: !!testFolder };
+      } catch (writeError) {
+        info.database.writeTest = { success: false, error: String(writeError.message || writeError) };
+      }
+      
+    } catch (dbError) {
+      info.database.error = String(dbError.message || dbError);
+    }
+    
+    res.json({ ok: true, info });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
+// Test folder creation endpoint
+router.post('/debug/test-folder', (req, res) => {
+  try {
+    const testName = `test-${Date.now()}`;
+    console.log(`[DEBUG] Testing folder creation: ${testName}`);
+    
+    const dbInstance = require('../db/init');
+    
+    // Direct database insert
+    const stmt = dbInstance.prepare('INSERT INTO folders (name, display_name) VALUES (?, ?)');
+    const result = stmt.run(testName, `Test Folder ${Date.now()}`);
+    
+    console.log(`[DEBUG] Direct insert result:`, result);
+    
+    // Verify it exists
+    const verification = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
+    console.log(`[DEBUG] Verification query result:`, verification);
+    
+    // Clean up
+    dbInstance.prepare('DELETE FROM folders WHERE name = ?').run(testName);
+    
+    res.json({ 
+      ok: true, 
+      test: {
+        insertResult: result,
+        verification: verification,
+        cleaned: true
+      }
+    });
+  } catch (error) {
+    console.error('[DEBUG] Test folder creation error:', error);
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
 // Home: list folders
 router.get('/', (req, res) => {
   const folders = db.getFolders();

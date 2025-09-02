@@ -67,14 +67,33 @@ router.patch('/folder/:name', (req, res) => {
 
 // Create folder
 router.post('/folder', (req, res) => {
-  const { name, displayName, parentId } = req.body || {};
-  if (!name) return res.status(400).json({ ok: false, error: 'name required' });
+  try {
+    const { name, displayName, parentId } = req.body || {};
+    console.log('Creating folder:', { name, displayName, parentId });
+    
+    if (!name) return res.status(400).json({ ok: false, error: 'name required' });
 
-  const existing = db.getFolderByName(name);
-  if (existing) return res.json({ ok: true, folder: existing, created: false });
+    const existing = db.getFolderByName(name);
+    if (existing) {
+      console.log('Folder already exists:', existing);
+      return res.json({ ok: true, folder: existing, created: false });
+    }
 
-  const folder = db.createFolder({ name, displayName: displayName || null, parentId: parentId || null });
-  return res.status(201).json({ ok: true, folder, created: true });
+    const folder = db.createFolder({ name, displayName: displayName || null, parentId: parentId || null });
+    console.log('Folder created successfully:', folder);
+    
+    // Verify the folder was actually created by querying it back
+    const verification = db.getFolderByName(name);
+    if (!verification) {
+      console.error('Folder creation verification failed');
+      return res.status(500).json({ ok: false, error: 'folder_creation_verification_failed' });
+    }
+    
+    return res.status(201).json({ ok: true, folder, created: true });
+  } catch (error) {
+    console.error('Folder creation error:', error);
+    return res.status(500).json({ ok: false, error: 'folder_creation_failed', details: String(error.message || error) });
+  }
 });
 
 // Upload a document to a folder
