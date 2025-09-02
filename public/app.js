@@ -11,24 +11,10 @@ function toast(msg, type = 'info') {
 async function apiCall(url, options = {}, maxRetries = 3) {
   let lastError;
   
-  // Ensure proper headers for AJAX detection
-  const defaultHeaders = {
-    'X-Requested-With': 'XMLHttpRequest',
-    'Accept': 'application/json'
-  };
-  
-  // For FormData uploads, don't set Content-Type (browser sets it with boundary)
-  if (options.body instanceof FormData) {
+  // Only add AJAX headers for admin routes to help with Azure Easy Auth detection
+  if (url.startsWith('/admin/')) {
     options.headers = {
       'X-Requested-With': 'XMLHttpRequest',
-      ...(options.headers || {})
-    };
-    // Remove Content-Type if it was set, let browser handle it
-    delete options.headers['Content-Type'];
-  } else {
-    // Merge headers, preserving any existing ones
-    options.headers = {
-      ...defaultHeaders,
       ...(options.headers || {})
     };
   }
@@ -36,7 +22,6 @@ async function apiCall(url, options = {}, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       console.log(`[API] ${options.method || 'GET'} ${url} (attempt ${i + 1}/${maxRetries})`);
-      console.log(`[API] Headers:`, options.headers);
       const response = await fetch(url, options);
       
       console.log(`[API] Response status: ${response.status} ${response.statusText}`);
@@ -611,41 +596,3 @@ function updateUploadState() {
   const ok = Boolean(folder) && Boolean(isPdf);
   if (uploadBtn) uploadBtn.disabled = !ok;
 }
-//
- Authentication test functionality
-document.addEventListener('DOMContentLoaded', () => {
-  const authTestBtn = document.getElementById('authTestBtn');
-  const authTestResult = document.getElementById('authTestResult');
-  
-  if (authTestBtn && authTestResult) {
-    authTestBtn.addEventListener('click', async () => {
-      authTestBtn.disabled = true;
-      authTestBtn.textContent = 'Testing...';
-      authTestResult.textContent = 'Running authentication test...';
-      
-      try {
-        const result = await apiCall('/admin/auth-test');
-        authTestResult.innerHTML = `
-          <div style="color: var(--success); margin-bottom: var(--space-2);">✅ Authentication successful!</div>
-          <div><strong>Headers sent:</strong></div>
-          <div>• X-Requested-With: ${result.headers['x-requested-with'] || 'not set'}</div>
-          <div>• Accept: ${result.headers['accept'] || 'not set'}</div>
-          <div>• Content-Type: ${result.headers['content-type'] || 'not set'}</div>
-          <div><strong>Principal:</strong> ${result.principal}</div>
-          <div><strong>Method:</strong> ${result.method}</div>
-          <div><strong>Path:</strong> ${result.path}</div>
-        `;
-        toast('Authentication test passed!', 'success');
-      } catch (error) {
-        authTestResult.innerHTML = `
-          <div style="color: var(--destructive); margin-bottom: var(--space-2);">❌ Authentication failed!</div>
-          <div><strong>Error:</strong> ${error.message}</div>
-        `;
-        toast(`Auth test failed: ${error.message}`, 'error');
-      } finally {
-        authTestBtn.disabled = false;
-        authTestBtn.textContent = 'Test Auth';
-      }
-    });
-  }
-});

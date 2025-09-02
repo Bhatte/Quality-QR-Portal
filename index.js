@@ -70,8 +70,7 @@ function adminAuth(req, res, next) {
     const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
                    req.headers['accept']?.includes('application/json') ||
                    req.headers['content-type']?.includes('application/json') ||
-                   req.path.startsWith('/admin/') ||
-                   req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+                   req.path.startsWith('/admin/');
     
     console.log(`[AUTH] Detected as AJAX request: ${isAjax}`);
     
@@ -132,8 +131,7 @@ function adminAuth(req, res, next) {
       const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
                      req.headers['accept']?.includes('application/json') ||
                      req.headers['content-type']?.includes('application/json') ||
-                     req.path.startsWith('/admin/') ||
-                     req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+                     req.path.startsWith('/admin/');
       
       if (isAjax) {
         return res.status(403).json({ 
@@ -152,8 +150,7 @@ function adminAuth(req, res, next) {
     const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
                    req.headers['accept']?.includes('application/json') ||
                    req.headers['content-type']?.includes('application/json') ||
-                   req.path.startsWith('/admin/') ||
-                   req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+                   req.path.startsWith('/admin/');
     
     if (isAjax) {
       return res.status(401).json({ 
@@ -188,22 +185,6 @@ const adminRate = (() => {
     return next();
   };
 })();
-
-// Test endpoint for authentication debugging
-app.get('/admin/auth-test', adminAuth, (req, res) => {
-  res.json({
-    ok: true,
-    message: 'Authentication successful',
-    headers: {
-      'x-requested-with': req.headers['x-requested-with'] || null,
-      'accept': req.headers['accept'] || null,
-      'content-type': req.headers['content-type'] || null
-    },
-    principal: req.headers['x-ms-client-principal'] ? 'present' : 'missing',
-    method: req.method,
-    path: req.path
-  });
-});
 
 // Routes
 app.use('/', publicRouter);
