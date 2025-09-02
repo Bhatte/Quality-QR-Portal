@@ -68,14 +68,18 @@ router.get('/debug/info', (req, res) => {
       
       // Try to get document count
       const docCount = dbInstance.prepare('SELECT COUNT(*) as count FROM documents').get();
-      info.database.documentCount = docCount.count;
+      info.database.documentCount = Number(docCount.count);
       
       // Test database write capability
       try {
         const testResult = dbInstance.prepare("INSERT INTO folders (name, display_name) VALUES ('__test__', 'Test Folder')").run();
         const testFolder = dbInstance.prepare("SELECT * FROM folders WHERE name = '__test__'").get();
         dbInstance.prepare("DELETE FROM folders WHERE name = '__test__'").run();
-        info.database.writeTest = { success: true, insertId: testResult.lastInsertRowid, retrieved: !!testFolder };
+        info.database.writeTest = { 
+          success: true, 
+          insertId: Number(testResult.lastInsertRowid), 
+          retrieved: !!testFolder 
+        };
       } catch (writeError) {
         info.database.writeTest = { success: false, error: String(writeError.message || writeError) };
       }
@@ -105,8 +109,7 @@ router.post('/debug/test-folder', (req, res) => {
       
       console.log(`[DEBUG] Direct insert result:`, result);
       
-      // Force synchronization to disk
-      dbInstance.pragma('synchronous = FULL');
+      // No pragma commands inside transactions
       
       // Verify it exists immediately
       const verification = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
@@ -195,22 +198,23 @@ router.get('/debug/db-status', (req, res) => {
   try {
     const dbInstance = require('../db/init');
     
+    // Get status without BigInt issues
     const status = {
-      journalMode: dbInstance.pragma('journal_mode', { simple: true }),
-      synchronous: dbInstance.pragma('synchronous', { simple: true }),
-      busyTimeout: dbInstance.pragma('busy_timeout', { simple: true }),
-      walAutocheckpoint: dbInstance.pragma('wal_autocheckpoint', { simple: true }),
-      cacheSize: dbInstance.pragma('cache_size', { simple: true }),
-      tempStore: dbInstance.pragma('temp_store', { simple: true })
+      journalMode: String(dbInstance.pragma('journal_mode', { simple: true })),
+      synchronous: String(dbInstance.pragma('synchronous', { simple: true })),
+      busyTimeout: Number(dbInstance.pragma('busy_timeout', { simple: true })),
+      cacheSize: Number(dbInstance.pragma('cache_size', { simple: true }))
     };
     
     // Test a simple query
     const testQuery = dbInstance.prepare('SELECT COUNT(*) as count FROM folders').get();
+    const folderCount = Number(testQuery.count);
     
     res.json({ 
       ok: true, 
       status,
-      testQuery
+      folderCount,
+      message: 'Database accessible'
     });
   } catch (error) {
     console.error('[DEBUG] Database status error:', error);

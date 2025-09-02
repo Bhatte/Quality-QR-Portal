@@ -1,8 +1,8 @@
 const path = require('path');
 const db = require('../db/init');
 
-// Retry wrapper for database operations
-function withRetry(operation, maxRetries = 3, delay = 100) {
+// Retry wrapper for database operations with better error handling
+function withRetry(operation, maxRetries = 5, baseDelay = 50) {
   return function(...args) {
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
@@ -10,17 +10,25 @@ function withRetry(operation, maxRetries = 3, delay = 100) {
         return operation.apply(this, args);
       } catch (error) {
         lastError = error;
-        if (error.code === 'SQLITE_BUSY' || error.message.includes('locked')) {
-          console.log(`[DB] Database locked, retry ${i + 1}/${maxRetries} after ${delay}ms`);
-          // Synchronous sleep for simplicity
+        const isLockError = error.code === 'SQLITE_BUSY' || 
+                           error.code === 'SQLITE_LOCKED' || 
+                           error.message.includes('locked') ||
+                           error.message.includes('busy');
+        
+        if (isLockError && i < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, i) + Math.random() * 50; // Jittered exponential backoff
+          console.log(`[DB] Database ${error.code || 'locked'}, retry ${i + 1}/${maxRetries} after ${Math.round(delay)}ms`);
+          
+          // Use setTimeout for non-blocking delay
           const start = Date.now();
           while (Date.now() - start < delay) {
-            // Busy wait
+            // Busy wait (synchronous for simplicity)
           }
-          delay *= 2; // Exponential backoff
           continue;
         }
-        throw error; // Re-throw non-lock errors immediately
+        
+        console.error(`[DB] Operation failed:`, error.message);
+        throw error; // Re-throw after max retries or non-lock errors
       }
     }
     throw lastError;
@@ -58,7 +66,7 @@ module.exports = {
     
     // Use retry wrapper for the entire operation
     const createWithRetry = withRetry(() => {
-      // Use explicit transaction to ensure data persistence
+      // Use explicit transaction for the database operations only
       const transaction = db.transaction(() => {
         const stmt = db.prepare(
           'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
@@ -66,20 +74,26 @@ module.exports = {
         const info = stmt.run(name, displayName, parentId);
         console.log(`[DB] Insert result:`, info);
         
-        // Force WAL checkpoint to ensure persistence
-        db.pragma('wal_checkpoint(PASSIVE)');
-        
-        const folder = this.getFolderById(info.lastInsertRowid);
-        console.log(`[DB] Retrieved folder after creation:`, folder);
-        
-        if (!folder) {
-          throw new Error('Folder creation verification failed');
-        }
-        
-        return folder;
+        return info.lastInsertRowid;
       });
       
-      return transaction();
+      const insertId = transaction();
+      
+      // Run WAL checkpoint outside of transaction
+      try {
+        db.pragma('wal_checkpoint(PASSIVE)');
+      } catch (e) {
+        console.log('[DB] WAL checkpoint warning:', e.message);
+      }
+      
+      const folder = this.getFolderById(insertId);
+      console.log(`[DB] Retrieved folder after creation:`, folder);
+      
+      if (!folder) {
+        throw new Error('Folder creation verification failed');
+      }
+      
+      return folder;
     });
     
     return createWithRetry();

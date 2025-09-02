@@ -10,21 +10,24 @@ if (!fs.existsSync(dir)) {
 
 const db = new Database(DB_PATH);
 
-// Configure SQLite for better reliability in cloud environments
-// Use WAL mode with proper timeout settings for cloud environments
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
-db.pragma('cache_size = 1000');
-db.pragma('temp_store = memory');
-db.pragma('busy_timeout = 30000'); // 30 second timeout for locked database
-
-// Set connection options for better concurrency
-db.defaultSafeIntegers(true);
-
-console.log('SQLite configuration:');
-console.log('- Journal mode:', db.pragma('journal_mode', { simple: true }));
-console.log('- Synchronous:', db.pragma('synchronous', { simple: true }));
-console.log('- Busy timeout:', db.pragma('busy_timeout', { simple: true }));
+// Configure SQLite for cloud environments - conservative approach
+try {
+  // Use DELETE journal mode for maximum compatibility
+  db.pragma('journal_mode = DELETE');
+  db.pragma('synchronous = FULL');
+  db.pragma('busy_timeout = 10000'); // 10 second timeout
+  db.pragma('cache_size = -2000'); // 2MB cache
+  
+  // Disable safe integers to avoid BigInt serialization issues
+  db.defaultSafeIntegers(false);
+  
+  console.log('✅ SQLite configured successfully:');
+  console.log('- Journal mode:', db.pragma('journal_mode', { simple: true }));
+  console.log('- Synchronous:', db.pragma('synchronous', { simple: true }));
+  console.log('- Busy timeout:', db.pragma('busy_timeout', { simple: true }));
+} catch (error) {
+  console.error('⚠️  SQLite configuration warning:', error.message);
+}
 
 // Check if we need to migrate from old schema
 function migrateIfNeeded() {
