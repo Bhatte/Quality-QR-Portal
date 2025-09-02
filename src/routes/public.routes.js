@@ -98,15 +98,32 @@ router.post('/debug/test-folder', (req, res) => {
     
     const dbInstance = require('../db/init');
     
-    // Direct database insert
-    const stmt = dbInstance.prepare('INSERT INTO folders (name, display_name) VALUES (?, ?)');
-    const result = stmt.run(testName, `Test Folder ${Date.now()}`);
+    // Test with explicit transaction
+    const transaction = dbInstance.transaction(() => {
+      const stmt = dbInstance.prepare('INSERT INTO folders (name, display_name) VALUES (?, ?)');
+      const result = stmt.run(testName, `Test Folder ${Date.now()}`);
+      
+      console.log(`[DEBUG] Direct insert result:`, result);
+      
+      // Force WAL checkpoint
+      dbInstance.pragma('wal_checkpoint(TRUNCATE)');
+      
+      // Verify it exists immediately
+      const verification = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
+      console.log(`[DEBUG] Verification query result:`, verification);
+      
+      return { result, verification };
+    });
     
-    console.log(`[DEBUG] Direct insert result:`, result);
+    const { result, verification } = transaction();
     
-    // Verify it exists
-    const verification = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
-    console.log(`[DEBUG] Verification query result:`, verification);
+    // Check if it still exists after transaction
+    const postTransactionCheck = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
+    console.log(`[DEBUG] Post-transaction check:`, postTransactionCheck);
+    
+    // Check all folders
+    const allFolders = dbInstance.prepare('SELECT * FROM folders').all();
+    console.log(`[DEBUG] All folders after insert:`, allFolders);
     
     // Clean up
     dbInstance.prepare('DELETE FROM folders WHERE name = ?').run(testName);
@@ -116,11 +133,42 @@ router.post('/debug/test-folder', (req, res) => {
       test: {
         insertResult: result,
         verification: verification,
+        postTransactionCheck: postTransactionCheck,
+        allFoldersAfterInsert: allFolders,
         cleaned: true
       }
     });
   } catch (error) {
     console.error('[DEBUG] Test folder creation error:', error);
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
+// Manual folder creation for testing
+router.post('/debug/create-folder/:name', (req, res) => {
+  try {
+    const { name } = req.params;
+    console.log(`[DEBUG] Manual folder creation: ${name}`);
+    
+    const db = require('../services/database.service');
+    const folder = db.createFolder({ name, displayName: `Debug ${name}` });
+    
+    // Verify it exists
+    const verification = db.getFolderByName(name);
+    const allFolders = db.getFolders();
+    
+    console.log(`[DEBUG] Created folder:`, folder);
+    console.log(`[DEBUG] Verification:`, verification);
+    console.log(`[DEBUG] All folders:`, allFolders);
+    
+    res.json({ 
+      ok: true, 
+      folder,
+      verification,
+      allFolders
+    });
+  } catch (error) {
+    console.error('[DEBUG] Manual folder creation error:', error);
     res.status(500).json({ ok: false, error: String(error.message || error) });
   }
 });

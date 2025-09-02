@@ -26,16 +26,28 @@ module.exports = {
   createFolder({ name, displayName = null, parentId = null }) {
     console.log(`[DB] Creating folder: name="${name}", displayName="${displayName}", parentId="${parentId}"`);
     
-    const stmt = db.prepare(
-      'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
-    );
-    const info = stmt.run(name, displayName, parentId);
-    console.log(`[DB] Insert result:`, info);
+    // Use explicit transaction to ensure data persistence
+    const transaction = db.transaction(() => {
+      const stmt = db.prepare(
+        'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
+      );
+      const info = stmt.run(name, displayName, parentId);
+      console.log(`[DB] Insert result:`, info);
+      
+      // Force a checkpoint to ensure WAL is written to main database
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      
+      const folder = this.getFolderById(info.lastInsertRowid);
+      console.log(`[DB] Retrieved folder after creation:`, folder);
+      
+      if (!folder) {
+        throw new Error('Folder creation verification failed');
+      }
+      
+      return folder;
+    });
     
-    const folder = this.getFolderById(info.lastInsertRowid);
-    console.log(`[DB] Retrieved folder after creation:`, folder);
-    
-    return folder;
+    return transaction();
   },
 
   getFolderById(id) {

@@ -235,6 +235,24 @@ The correct Easy Auth configuration should be:
 **If you still get "Unauthenticated":**
 This means the app code change hasn't been deployed yet. Redeploy your app with the updated code.
 
+#### Folder Creation Issues (Advanced Debugging)
+If folders appear to be created but don't persist:
+
+**Test Database Transactions:**
+1. `POST /debug/test-folder` - Tests direct database operations with transactions
+2. `POST /debug/create-folder/testfolder` - Tests the full folder creation flow
+3. `GET /debug/info` - Check folder count before and after
+
+**Expected Results:**
+- `writeTest.success` should be `true`
+- `folderCount` should increase after folder creation
+- `rawFolderQuery` should show the created folders
+
+**Common Issues:**
+- **WAL mode problems**: SQLite Write-Ahead Logging not syncing properly
+- **Transaction isolation**: Changes not being committed properly
+- **File system sync**: Database changes not persisting to disk
+
 #### Other Common Issues
 1. **App not starting**: Check "Configuration" → "Application settings"
 2. **Multiple admins**: Use comma-separated emails in `ADMIN_EMAILS` (no spaces around commas)

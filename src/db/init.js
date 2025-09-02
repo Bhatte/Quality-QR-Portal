@@ -10,6 +10,12 @@ if (!fs.existsSync(dir)) {
 
 const db = new Database(DB_PATH);
 
+// Configure SQLite for better reliability in cloud environments
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = 1000');
+db.pragma('temp_store = memory');
+
 // Check if we need to migrate from old schema
 function migrateIfNeeded() {
   try {
