@@ -1,0 +1,22 @@
+{
+  "name": "qr-portal",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "prepare:db": "node ./src/db/init.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2"
+  },
+  "devDependencies": {}
+}

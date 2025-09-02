@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR Portal Admin</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <meta name="description" content="Administrative interface for managing quality documents and folders">
+  <style>
+    /* Enhanced drop zone styling */
+    #dropZone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8);
+      text-align: center;
+      color: var(--muted-foreground);
+      background: var(--muted)/30%;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    #dropZone:hover {
+      border-color: var(--accent);
+      background: var(--accent)/5%;
+    }
+    #dropZone.drag {
+      border-color: var(--accent);
+      background: var(--accent)/10%;
+      color: var(--accent);
+      transform: scale(1.02);
+    }
+    #portalUrl {
+      word-break: break-all;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: var(--text-sm);
+      background: var(--muted);
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    details > summary {
+      cursor: pointer;
+      padding: var(--space-3);
+      border-radius: var(--radius);
+      transition: background-color 0.2s ease;
+    }
+    details > summary:hover {
+      background: var(--muted)/50%;
+    }
+    details[open] > summary {
+      margin-bottom: var(--space-3);
+    }
+  </style>
+  <script>
+    (function(){
+      const cls = document.documentElement.classList;
+      if(!('clipboard' in navigator)) cls.add('no-clipboard');
+    })();
+  </script>
+</head>
+<body>
+  <header class="header">
+    <div class="container">
+      <div class="brand">
+        <a href="/" class="brand__logo-link" aria-label="Go to Quality Portal Home">
+          <img src="/logo.png" class="brand__logo" alt="Jones Engineering logo" />
+        </a>
+        <div>
+          <h1 class="brand__title">QR Portal — Admin</h1>
+          <p class="subtitle">Manage folders, upload PDFs, and handle versions</p>
+        </div>
+        <div class="flex items-center gap-3" style="margin-left: auto;">
+          <div class="badge">Administrator</div>
+          <a href="/" class="btn btn--outline btn--sm">View Portal</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container admin-grid" role="main">
+    <aside class="admin-card" aria-label="Folders management">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-semibold">Folders</h2>
+      </div>
+      
+      <div class="mb-6">
+        <label for="folderName" class="block text-sm font-medium mb-2">Create New Folder</label>
+        <div class="admin-row">
+          <input 
+            id="folderName" 
+            class="admin-input flex-1" 
+            placeholder="e.g. welding, testing, inspection" 
+            aria-describedby="folderName-help"
+          />
+          <button id="createFolderBtn" class="btn btn--primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Create
+          </button>
+        </div>
+        <p id="folderName-help" class="text-xs text-muted mt-1">Folder names should be descriptive and lowercase</p>
+      </div>
+      
+      <div class="mb-4">
+        <h3 class="text-sm font-medium mb-2">Existing Folders</h3>
+        <div class="relative">
+          <ul id="folders" class="list" style="max-height:400px;overflow-y:auto;"></ul>
+        </div>
+      </div>
+    </aside>
+
+    <section class="admin-card">
+      <h2 class="text-xl font-semibold mb-6">Document Management</h2>
+      
+      <!-- Upload Section -->
+      <div class="mb-8">
+        <h3 class="text-lg font-medium mb-4">Upload Document</h3>
+        
+        <div class="grid gap-4 mb-4">
+          <div>
+            <label for="folderSelect" class="block text-sm font-medium mb-2">Target Folder</label>
+            <select id="folderSelect" class="admin-input w-full">
+              <option value="">Select a folder...</option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium mb-2">PDF Document</label>
+            <div class="flex gap-3 items-center">
+              <input type="file" id="file" class="visually-hidden" accept="application/pdf,.pdf" />
+              <label for="file" class="btn btn--outline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14,2 14,8 20,8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10,9 9,9 8,9"></polyline>
+                </svg>
+                Choose PDF
+              </label>
+              <span id="fileName" class="text-sm text-muted flex-1">No file selected</span>
+              <button id="uploadBtn" class="btn btn--primary" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7,10 12,15 17,10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Upload
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div id="dropZone" class="mb-4">
+          <div class="flex flex-col items-center gap-2">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17,8 12,3 7,8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p class="text-sm font-medium">Drag & drop a PDF here</p>
+            <p class="text-xs text-muted">or click to browse files</p>
+          </div>
+        </div>
+        
+        <div class="progress mb-4" id="progress">
+          <div class="progress__bar"></div>
+        </div>
+        
+        <div id="status" class="text-sm mb-4"></div>
+        
+        <div class="bg-muted/30 p-4 rounded-lg">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium mb-1">Generated Portal URL</p>
+              <code id="portalUrl" class="text-xs">Upload a document to generate URL</code>
+            </div>
+            <button id="copyUrlBtn" class="btn btn--outline btn--sm" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              Copy
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Documents Section -->
+      <div>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-medium">Documents</h3>
+          <div class="flex gap-2">
+            <input 
+              id="docsSearch" 
+              class="admin-input" 
+              placeholder="Search documents..." 
+              style="width: 200px;"
+            />
+          </div>
+        </div>
+        
+        <div id="docs" class="min-h-32 flex items-center justify-center text-muted">
+          <div class="text-center">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mx-auto mb-2 opacity-50">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14,2 14,8 20,8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10,9 9,9 8,9"></polyline>
+            </svg>
+            <p class="text-sm">Select a folder to view documents</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toasts"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
