@@ -43,7 +43,14 @@ app.get('/logo.png', (req, res) => {
 // Admin auth switch
 // - Dev (default): open
 // - Production OR EASY_AUTH=true: enforce Azure Easy Auth header and optionally ADMIN_EMAILS allowlist
+// - DISABLE_AUTH=true: completely disable authentication (for testing)
 function adminAuth(req, res, next) {
+  const disableAuth = /^(true|1|yes)$/i.test(String(process.env.DISABLE_AUTH || ''));
+  if (disableAuth) {
+    console.log('[AUTH] Authentication disabled via DISABLE_AUTH environment variable');
+    return next();
+  }
+  
   const easyAuthOn = /^(true|1|yes)$/i.test(String(process.env.EASY_AUTH || ''));
   const mustEnforce = process.env.NODE_ENV === 'production' || easyAuthOn;
   if (!mustEnforce) return next();
@@ -51,10 +58,45 @@ function adminAuth(req, res, next) {
   // In Azure App Service with Easy Auth, x-ms-client-principal will be present for authenticated users
   const principal = req.headers['x-ms-client-principal'];
   if (!principal) {
-    // Redirect to Easy Auth login instead of returning 401
-    const loginUrl = '/.auth/login/aad';
-    const returnUrl = encodeURIComponent(req.originalUrl);
-    return res.redirect(`${loginUrl}?post_login_redirect_url=${returnUrl}`);
+    console.log(`[AUTH] No principal header found for ${req.method} ${req.path}`);
+    console.log(`[AUTH] Headers:`, {
+      'x-ms-client-principal': req.headers['x-ms-client-principal'] || '[MISSING]',
+      'x-requested-with': req.headers['x-requested-with'] || '[MISSING]',
+      'accept': req.headers['accept'] || '[MISSING]',
+      'content-type': req.headers['content-type'] || '[MISSING]'
+    });
+    
+    // Check if this is an AJAX request (API call)
+    const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
+                   req.headers['accept']?.includes('application/json') ||
+                   req.headers['content-type']?.includes('application/json') ||
+                   req.path.startsWith('/admin/') ||
+                   req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+    
+    console.log(`[AUTH] Detected as AJAX request: ${isAjax}`);
+    
+    if (isAjax) {
+      // Return JSON error for AJAX requests
+      console.log('[AUTH] Returning JSON authentication error');
+      return res.status(401).json({ 
+        ok: false, 
+        error: 'authentication_required',
+        message: 'Azure Easy Auth is required but no principal header found',
+        loginUrl: '/.auth/login/aad',
+        debug: {
+          path: req.path,
+          method: req.method,
+          hasEasyAuth: !!process.env.EASY_AUTH,
+          nodeEnv: process.env.NODE_ENV
+        }
+      });
+    } else {
+      // Redirect to Easy Auth login for browser requests
+      console.log('[AUTH] Redirecting to Easy Auth login');
+      const loginUrl = '/.auth/login/aad';
+      const returnUrl = encodeURIComponent(req.originalUrl);
+      return res.redirect(`${loginUrl}?post_login_redirect_url=${returnUrl}`);
+    }
   }
 
   // Validate against ADMIN_EMAILS allowlist if provided
@@ -84,10 +126,44 @@ function adminAuth(req, res, next) {
     ).toLowerCase();
 
     if (!email || !allow.includes(email)) {
-      return res.status(403).send('Forbidden.');
+      console.log(`[AUTH] Email validation failed. Email: ${email}, Allowed: ${allow.join(', ')}`);
+      
+      // Check if this is an AJAX request
+      const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
+                     req.headers['accept']?.includes('application/json') ||
+                     req.headers['content-type']?.includes('application/json') ||
+                     req.path.startsWith('/admin/') ||
+                     req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+      
+      if (isAjax) {
+        return res.status(403).json({ 
+          ok: false, 
+          error: 'forbidden',
+          message: 'Your email is not in the admin allowlist'
+        });
+      } else {
+        return res.status(403).send('Forbidden: Your email is not in the admin allowlist.');
+      }
     }
-  } catch (_) {
-    return res.status(401).send('Unauthenticated.');
+  } catch (decodeError) {
+    console.error('[AUTH] Principal decode error:', decodeError);
+    
+    // Check if this is an AJAX request
+    const isAjax = req.headers['x-requested-with'] === 'XMLHttpRequest' ||
+                   req.headers['accept']?.includes('application/json') ||
+                   req.headers['content-type']?.includes('application/json') ||
+                   req.path.startsWith('/admin/') ||
+                   req.method !== 'GET'; // Non-GET requests to admin routes are likely API calls
+    
+    if (isAjax) {
+      return res.status(401).json({ 
+        ok: false, 
+        error: 'authentication_invalid',
+        message: 'Unable to decode authentication principal'
+      });
+    } else {
+      return res.status(401).send('Unauthenticated: Unable to decode authentication principal.');
+    }
   }
 
   return next();
@@ -112,6 +188,22 @@ const adminRate = (() => {
     return next();
   };
 })();
+
+// Test endpoint for authentication debugging
+app.get('/admin/auth-test', adminAuth, (req, res) => {
+  res.json({
+    ok: true,
+    message: 'Authentication successful',
+    headers: {
+      'x-requested-with': req.headers['x-requested-with'] || null,
+      'accept': req.headers['accept'] || null,
+      'content-type': req.headers['content-type'] || null
+    },
+    principal: req.headers['x-ms-client-principal'] ? 'present' : 'missing',
+    method: req.method,
+    path: req.path
+  });
+});
 
 // Routes
 app.use('/', publicRouter);

@@ -77,6 +77,16 @@
   </header>
 
   <main class="container admin-grid" role="main">
+    
+    <!-- Authentication Test Section -->
+    <div class="admin-card" style="grid-column: 1 / -1; margin-bottom: var(--space-4);">
+      <div class="flex justify-between items-center">
+        <h3>Authentication Test</h3>
+        <button id="authTestBtn" class="btn btn--secondary">Test Auth</button>
+      </div>
+      <div id="authTestResult" style="margin-top: var(--space-2); font-family: monospace; font-size: var(--text-sm);"></div>
+    </div>
+    
     <aside class="admin-card" aria-label="Folders management">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-xl font-semibold">Folders</h2>

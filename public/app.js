@@ -7,16 +7,65 @@ function toast(msg, type = 'info') {
   setTimeout(() => t.remove(), type === 'error' ? 4000 : 2400);
 }
 
-// Retry wrapper for API calls
+// Retry wrapper for API calls with detailed debugging
 async function apiCall(url, options = {}, maxRetries = 3) {
   let lastError;
   
+  // Ensure proper headers for AJAX detection
+  const defaultHeaders = {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json'
+  };
+  
+  // For FormData uploads, don't set Content-Type (browser sets it with boundary)
+  if (options.body instanceof FormData) {
+    options.headers = {
+      'X-Requested-With': 'XMLHttpRequest',
+      ...(options.headers || {})
+    };
+    // Remove Content-Type if it was set, let browser handle it
+    delete options.headers['Content-Type'];
+  } else {
+    // Merge headers, preserving any existing ones
+    options.headers = {
+      ...defaultHeaders,
+      ...(options.headers || {})
+    };
+  }
+  
   for (let i = 0; i < maxRetries; i++) {
     try {
+      console.log(`[API] ${options.method || 'GET'} ${url} (attempt ${i + 1}/${maxRetries})`);
+      console.log(`[API] Headers:`, options.headers);
       const response = await fetch(url, options);
-      const data = await response.json().catch(() => ({ ok: false, error: 'Invalid response' }));
+      
+      console.log(`[API] Response status: ${response.status} ${response.statusText}`);
+      console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()));
+      
+      // Get response text first to debug what we're actually receiving
+      const responseText = await response.text();
+      console.log(`[API] Response body:`, responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error(`[API] JSON parse error:`, parseError);
+        throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}`);
+      }
       
       if (!response.ok && !data.ok) {
+        // Handle authentication errors
+        if (response.status === 401 || data.error === 'authentication_required') {
+          console.log('[API] Authentication required, redirecting to login');
+          if (data.loginUrl) {
+            window.location.href = data.loginUrl;
+          } else {
+            window.location.href = '/.auth/login/aad';
+          }
+          return; // Don't throw error, just redirect
+        }
+        
         // Check if it's a database lock error that we should retry
         const isRetryableError = data.error && (
           data.error.includes('locked') || 
@@ -27,22 +76,24 @@ async function apiCall(url, options = {}, maxRetries = 3) {
         
         if (isRetryableError && i < maxRetries - 1) {
           const delay = Math.pow(2, i) * 100 + Math.random() * 100; // Exponential backoff with jitter
-          console.log(`API retry ${i + 1}/${maxRetries} after ${Math.round(delay)}ms for:`, url);
+          console.log(`[API] Retrying ${i + 1}/${maxRetries} after ${Math.round(delay)}ms for:`, url);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
         
-        throw new Error(data.error || `HTTP ${response.status}`);
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
       
+      console.log(`[API] Success:`, data);
       return data;
     } catch (error) {
+      console.error(`[API] Error on attempt ${i + 1}:`, error);
       lastError = error;
       
       // Network errors - retry
       if ((error.name === 'TypeError' || error.message.includes('fetch')) && i < maxRetries - 1) {
         const delay = Math.pow(2, i) * 200;
-        console.log(`Network retry ${i + 1}/${maxRetries} after ${delay}ms for:`, url);
+        console.log(`[API] Network retry ${i + 1}/${maxRetries} after ${delay}ms for:`, url);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -560,3 +611,41 @@ function updateUploadState() {
   const ok = Boolean(folder) && Boolean(isPdf);
   if (uploadBtn) uploadBtn.disabled = !ok;
 }
+//
+ Authentication test functionality
+document.addEventListener('DOMContentLoaded', () => {
+  const authTestBtn = document.getElementById('authTestBtn');
+  const authTestResult = document.getElementById('authTestResult');
+  
+  if (authTestBtn && authTestResult) {
+    authTestBtn.addEventListener('click', async () => {
+      authTestBtn.disabled = true;
+      authTestBtn.textContent = 'Testing...';
+      authTestResult.textContent = 'Running authentication test...';
+      
+      try {
+        const result = await apiCall('/admin/auth-test');
+        authTestResult.innerHTML = `
+          <div style="color: var(--success); margin-bottom: var(--space-2);">✅ Authentication successful!</div>
+          <div><strong>Headers sent:</strong></div>
+          <div>• X-Requested-With: ${result.headers['x-requested-with'] || 'not set'}</div>
+          <div>• Accept: ${result.headers['accept'] || 'not set'}</div>
+          <div>• Content-Type: ${result.headers['content-type'] || 'not set'}</div>
+          <div><strong>Principal:</strong> ${result.principal}</div>
+          <div><strong>Method:</strong> ${result.method}</div>
+          <div><strong>Path:</strong> ${result.path}</div>
+        `;
+        toast('Authentication test passed!', 'success');
+      } catch (error) {
+        authTestResult.innerHTML = `
+          <div style="color: var(--destructive); margin-bottom: var(--space-2);">❌ Authentication failed!</div>
+          <div><strong>Error:</strong> ${error.message}</div>
+        `;
+        toast(`Auth test failed: ${error.message}`, 'error');
+      } finally {
+        authTestBtn.disabled = false;
+        authTestBtn.textContent = 'Test Auth';
+      }
+    });
+  }
+});

@@ -222,6 +222,92 @@ router.get('/debug/db-status', (req, res) => {
   }
 });
 
+// Authentication status check
+router.get('/debug/auth-status', (req, res) => {
+  try {
+    const easyAuthOn = /^(true|1|yes)$/i.test(String(process.env.EASY_AUTH || ''));
+    const mustEnforce = process.env.NODE_ENV === 'production' || easyAuthOn;
+    const principal = req.headers['x-ms-client-principal'];
+    
+    const authInfo = {
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        EASY_AUTH: process.env.EASY_AUTH,
+        ADMIN_EMAILS: process.env.ADMIN_EMAILS ? '[REDACTED]' : undefined
+      },
+      authentication: {
+        mustEnforce,
+        easyAuthOn,
+        hasPrincipal: !!principal,
+        principalLength: principal ? principal.length : 0
+      },
+      headers: {
+        'x-ms-client-principal': principal ? '[PRESENT]' : '[MISSING]',
+        'x-ms-client-principal-name': req.headers['x-ms-client-principal-name'] || '[MISSING]',
+        'x-requested-with': req.headers['x-requested-with'] || '[MISSING]',
+        'accept': req.headers['accept'] || '[MISSING]',
+        'user-agent': req.headers['user-agent'] || '[MISSING]'
+      },
+      request: {
+        method: req.method,
+        path: req.path,
+        originalUrl: req.originalUrl
+      }
+    };
+    
+    // Try to decode principal if present
+    if (principal) {
+      try {
+        const decoded = JSON.parse(Buffer.from(principal, 'base64').toString('utf8'));
+        authInfo.principal = {
+          hasUserDetails: !!decoded.userDetails,
+          hasClaims: Array.isArray(decoded.claims),
+          claimsCount: Array.isArray(decoded.claims) ? decoded.claims.length : 0
+        };
+      } catch (decodeError) {
+        authInfo.principal = { decodeError: decodeError.message };
+      }
+    }
+    
+    res.json({ ok: true, authInfo });
+  } catch (error) {
+    console.error('[DEBUG] Auth status error:', error);
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
+// Test admin functionality without auth (for debugging)
+router.post('/debug/test-admin-folder', (req, res) => {
+  try {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ ok: false, error: 'name required' });
+
+    const testName = `debug-${name}-${Date.now()}`;
+    console.log(`[DEBUG] Testing admin folder creation without auth: ${testName}`);
+    
+    const existing = db.getFolderByName(testName);
+    if (existing) {
+      return res.json({ 
+        ok: true, 
+        message: 'Folder already exists',
+        folder: existing
+      });
+    }
+    
+    const folder = db.createFolder({ name: testName, displayName: `Debug ${testName}` });
+    console.log(`[DEBUG] Created folder without auth:`, folder);
+    
+    res.json({ 
+      ok: true, 
+      folder,
+      message: 'Folder created successfully without authentication'
+    });
+  } catch (error) {
+    console.error('[DEBUG] Test admin folder creation error:', error);
+    res.status(500).json({ ok: false, error: String(error.message || error) });
+  }
+});
+
 // Comprehensive functionality test
 router.post('/debug/full-test', async (req, res) => {
   const testResults = {
@@ -352,7 +438,7 @@ router.get('/folder/:folderName', (req, res) => {
   res.json({ ok: true, folder, documents });
 });
 
-// Serve the latest version of a document in a folder
+// Serve the latest version of a document in a folder (MUST come before /docs/:folder route)
 router.get('/docs/:folder/:fileName', (req, res) => {
   const { folder, fileName } = req.params;
   const doc = db.getDocumentByFolderAndFileName(folder, fileName);
@@ -372,6 +458,15 @@ router.get('/docs/:folder/:fileName', (req, res) => {
   return res.send(content.file_content);
 });
 
+// Friendly path: GET /docs/:folder -> list documents in folder (MUST come after /docs/:folder/:fileName)
+router.get('/docs/:folder', (req, res) => {
+  const { folder } = req.params;
+  const f = db.getFolderByName(folder);
+  if (!f) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  const documents = db.getDocumentsInFolder(folder);
+  return res.json({ ok: true, folder: f, documents });
+});
+
 // Friendly path: GET /:folderName -> list documents (avoid reserved paths)
 router.get('/:folderName', (req, res, next) => {
   const reserved = new Set(['folders', 'docs', 'admin']);
@@ -381,15 +476,6 @@ router.get('/:folderName', (req, res, next) => {
   if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
   const documents = db.getDocumentsInFolder(folderName);
   return res.json({ ok: true, folder, documents });
-});
-
-// Friendly path: GET /docs/:folder -> list documents in folder
-router.get('/docs/:folder', (req, res) => {
-  const { folder } = req.params;
-  const f = db.getFolderByName(folder);
-  if (!f) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-  const documents = db.getDocumentsInFolder(folder);
-  return res.json({ ok: true, folder: f, documents });
 });
 
 module.exports = router;
