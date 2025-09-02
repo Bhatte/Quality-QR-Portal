@@ -105,8 +105,8 @@ router.post('/debug/test-folder', (req, res) => {
       
       console.log(`[DEBUG] Direct insert result:`, result);
       
-      // Force WAL checkpoint
-      dbInstance.pragma('wal_checkpoint(TRUNCATE)');
+      // Force synchronization to disk
+      dbInstance.pragma('synchronous = FULL');
       
       // Verify it exists immediately
       const verification = dbInstance.prepare('SELECT * FROM folders WHERE name = ?').get(testName);
@@ -151,6 +151,18 @@ router.post('/debug/create-folder/:name', (req, res) => {
     console.log(`[DEBUG] Manual folder creation: ${name}`);
     
     const db = require('../services/database.service');
+    
+    // Check if folder already exists
+    const existing = db.getFolderByName(name);
+    if (existing) {
+      return res.json({ 
+        ok: true, 
+        message: 'Folder already exists',
+        folder: existing,
+        allFolders: db.getFolders()
+      });
+    }
+    
     const folder = db.createFolder({ name, displayName: `Debug ${name}` });
     
     // Verify it exists
@@ -169,6 +181,39 @@ router.post('/debug/create-folder/:name', (req, res) => {
     });
   } catch (error) {
     console.error('[DEBUG] Manual folder creation error:', error);
+    const errorDetails = {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    };
+    res.status(500).json({ ok: false, error: String(error.message || error), details: errorDetails });
+  }
+});
+
+// Database status check
+router.get('/debug/db-status', (req, res) => {
+  try {
+    const dbInstance = require('../db/init');
+    
+    const status = {
+      journalMode: dbInstance.pragma('journal_mode', { simple: true }),
+      synchronous: dbInstance.pragma('synchronous', { simple: true }),
+      busyTimeout: dbInstance.pragma('busy_timeout', { simple: true }),
+      walAutocheckpoint: dbInstance.pragma('wal_autocheckpoint', { simple: true }),
+      cacheSize: dbInstance.pragma('cache_size', { simple: true }),
+      tempStore: dbInstance.pragma('temp_store', { simple: true })
+    };
+    
+    // Test a simple query
+    const testQuery = dbInstance.prepare('SELECT COUNT(*) as count FROM folders').get();
+    
+    res.json({ 
+      ok: true, 
+      status,
+      testQuery
+    });
+  } catch (error) {
+    console.error('[DEBUG] Database status error:', error);
     res.status(500).json({ ok: false, error: String(error.message || error) });
   }
 });

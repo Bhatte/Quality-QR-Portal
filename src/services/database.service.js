@@ -1,6 +1,32 @@
 const path = require('path');
 const db = require('../db/init');
 
+// Retry wrapper for database operations
+function withRetry(operation, maxRetries = 3, delay = 100) {
+  return function(...args) {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return operation.apply(this, args);
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'SQLITE_BUSY' || error.message.includes('locked')) {
+          console.log(`[DB] Database locked, retry ${i + 1}/${maxRetries} after ${delay}ms`);
+          // Synchronous sleep for simplicity
+          const start = Date.now();
+          while (Date.now() - start < delay) {
+            // Busy wait
+          }
+          delay *= 2; // Exponential backoff
+          continue;
+        }
+        throw error; // Re-throw non-lock errors immediately
+      }
+    }
+    throw lastError;
+  };
+}
+
 function mapFolder(row) {
   return {
     id: row.id,
@@ -13,9 +39,13 @@ function mapFolder(row) {
 
 module.exports = {
   getFolders() {
-    const rows = db.prepare('SELECT * FROM folders ORDER BY name ASC').all();
-    console.log(`[DB] getFolders() returned ${rows.length} rows:`, rows);
-    return rows.map(mapFolder);
+    const getFoldersWithRetry = withRetry(() => {
+      const rows = db.prepare('SELECT * FROM folders ORDER BY name ASC').all();
+      console.log(`[DB] getFolders() returned ${rows.length} rows:`, rows);
+      return rows.map(mapFolder);
+    });
+    
+    return getFoldersWithRetry();
   },
 
   getFolderByName(name) {
@@ -26,28 +56,33 @@ module.exports = {
   createFolder({ name, displayName = null, parentId = null }) {
     console.log(`[DB] Creating folder: name="${name}", displayName="${displayName}", parentId="${parentId}"`);
     
-    // Use explicit transaction to ensure data persistence
-    const transaction = db.transaction(() => {
-      const stmt = db.prepare(
-        'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
-      );
-      const info = stmt.run(name, displayName, parentId);
-      console.log(`[DB] Insert result:`, info);
+    // Use retry wrapper for the entire operation
+    const createWithRetry = withRetry(() => {
+      // Use explicit transaction to ensure data persistence
+      const transaction = db.transaction(() => {
+        const stmt = db.prepare(
+          'INSERT INTO folders (name, display_name, parent_id) VALUES (?, ?, ?)'
+        );
+        const info = stmt.run(name, displayName, parentId);
+        console.log(`[DB] Insert result:`, info);
+        
+        // Force WAL checkpoint to ensure persistence
+        db.pragma('wal_checkpoint(PASSIVE)');
+        
+        const folder = this.getFolderById(info.lastInsertRowid);
+        console.log(`[DB] Retrieved folder after creation:`, folder);
+        
+        if (!folder) {
+          throw new Error('Folder creation verification failed');
+        }
+        
+        return folder;
+      });
       
-      // Force a checkpoint to ensure WAL is written to main database
-      db.pragma('wal_checkpoint(TRUNCATE)');
-      
-      const folder = this.getFolderById(info.lastInsertRowid);
-      console.log(`[DB] Retrieved folder after creation:`, folder);
-      
-      if (!folder) {
-        throw new Error('Folder creation verification failed');
-      }
-      
-      return folder;
+      return transaction();
     });
     
-    return transaction();
+    return createWithRetry();
   },
 
   getFolderById(id) {

@@ -302,14 +302,14 @@ free -m
 
 **Manual Database Test:**
 ```bash
-# Test database directly with Node.js
+# Test database directly with Node.js (fixed quotes)
 node -e "
 const Database = require('better-sqlite3');
 const db = new Database('/home/data/quality.sqlite');
 console.log('Database opened successfully');
 
 // Check tables
-const tables = db.prepare('SELECT name FROM sqlite_master WHERE type=\"table\"').all();
+const tables = db.prepare('SELECT name FROM sqlite_master WHERE type=?').all('table');
 console.log('Tables:', tables);
 
 // Check folders
