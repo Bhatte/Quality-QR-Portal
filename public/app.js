@@ -15,8 +15,12 @@ async function apiCall(url, options = {}, maxRetries = 3) {
   if (url.startsWith('/admin/')) {
     options.headers = {
       'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json',
       ...(options.headers || {})
     };
+    if (!options.credentials) {
+      options.credentials = 'same-origin';
+    }
   }
   
   for (let i = 0; i < maxRetries; i++) {
@@ -26,7 +30,20 @@ async function apiCall(url, options = {}, maxRetries = 3) {
       
       console.log(`[API] Response status: ${response.status} ${response.statusText}`);
       console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()));
-      
+      const contentType = response.headers.get('content-type') || '';
+      // Handle Azure Easy Auth redirections or HTML login pages
+      if (response.redirected && response.url.includes('/.auth/login')) {
+        console.log('[API] Redirected to Easy Auth login, forwarding browser.');
+        window.location.href = response.url;
+        return;
+      }
+      if (contentType.includes('text/html')) {
+        console.log('[API] HTML response detected for API call; redirecting to login.');
+        const returnUrl = encodeURIComponent(window.location.href);
+        window.location.href = `/.auth/login/aad?post_login_redirect_url=${returnUrl}`;
+        return;
+      }
+
       // Get response text first to debug what we're actually receiving
       const responseText = await response.text();
       console.log(`[API] Response body:`, responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
