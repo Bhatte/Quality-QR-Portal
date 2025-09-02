@@ -7,15 +7,39 @@ function toast(msg, type = 'info') {
   setTimeout(() => t.remove(), type === 'error' ? 4000 : 2400);
 }
 
+// Acquire and cache Easy Auth id_token to use as Authorization header when calling admin APIs.
+// This helps avoid upstream Easy Auth CSRF rejections for state-changing methods.
+let __EA_TOKEN = null;
+let __EA_TOKEN_EXP = 0;
+async function getEasyAuthIdToken() {
+  try {
+    const now = Date.now();
+    if (__EA_TOKEN && now < __EA_TOKEN_EXP) return __EA_TOKEN;
+    const r = await fetch('/.auth/me', { credentials: 'same-origin' });
+    if (!r.ok) return null;
+    const arr = await r.json();
+    const entry = Array.isArray(arr) ? arr[0] : null;
+    const bearer = entry?.access_token || entry?.id_token;
+    if (bearer) {
+      __EA_TOKEN = bearer;
+      __EA_TOKEN_EXP = now + 9 * 60 * 1000; // cache ~9 minutes
+      return __EA_TOKEN;
+    }
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
 // Retry wrapper for API calls with detailed debugging
 async function apiCall(url, options = {}, maxRetries = 3) {
   let lastError;
   
   // Only add AJAX headers for admin routes to help with Azure Easy Auth detection
   if (url.startsWith('/admin/')) {
+    const token = await getEasyAuthIdToken().catch(() => null);
     options.headers = {
       'X-Requested-With': 'XMLHttpRequest',
       'Accept': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}`, 'X-ZUMO-AUTH': token } : {}),
       ...(options.headers || {})
     };
     if (!options.credentials) {
