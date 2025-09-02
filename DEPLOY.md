@@ -66,7 +66,7 @@ This runbook describes how to provision Azure resources, configure the app, pack
 
    **Setting 2:**
    - Name: `ADMIN_EMAILS`
-   - Value: `your-email@company.com` (replace with your actual admin email)
+   - Value: `admin1@company.com,admin2@company.com,admin3@company.com` (comma-separated list of admin emails)
    - Click "OK"
 
    **Setting 3:**
@@ -90,17 +90,19 @@ This runbook describes how to provision Azure resources, configure the app, pack
    - **App registration type**: Create new app registration
    - **Name**: `quality-portal-auth` (or your preferred name)
    - **Supported account types**: Current tenant - Single tenant
-   - **Restrict access**: Require authentication
+   - **Restrict access**: **Allow unauthenticated access** (this is key!)
    - **Unauthenticated requests**: HTTP 302 Found redirect: recommended for websites
 5. Click "Add"
 6. Wait for the configuration to complete
 
-### 2.6 Allow Anonymous Access for Public Documents
-1. Still in "Authentication" section
-2. Click "Edit" next to your Microsoft provider
-3. Change **Restrict access** to "Allow unauthenticated access"
-4. Click "Save"
-5. This allows public document access while our code handles admin protection
+### 2.6 Understanding the Configuration
+With this setup:
+- **Public routes** (like `/docs/*`, `/healthz`) work without authentication
+- **Admin routes** (`/admin`) will redirect unauthenticated users to Microsoft login
+- **After login**, users are redirected back and the app receives the `x-ms-client-principal` header
+- **The app code** handles checking if the logged-in user is in the `ADMIN_EMAILS` list
+
+This configuration allows Easy Auth to provide authentication services while letting your application control which routes require authentication.
 
 ## 3) Zip Package (What to include)
 
@@ -185,14 +187,34 @@ If the above doesn't work:
 4. The PDF should display directly without requiring authentication
 
 ### 5.5 Troubleshooting
-If something doesn't work:
-1. In Azure Portal, go to your Web App
-2. Click "Log stream" in the left menu to see real-time logs
-3. Check for error messages
-4. Common issues:
-   - App not starting: Check "Configuration" → "Application settings"
-   - Database errors: Verify `SQLITE_DB_PATH` setting
-   - Auth issues: Check "Authentication" configuration
+
+#### Authentication Issues
+The correct Easy Auth configuration should be:
+
+1. Go to your Web App → Authentication
+2. Click "Edit" next to your Microsoft provider
+3. Set **Restrict access** to "Allow unauthenticated access"
+4. Set **Unauthenticated requests** to "HTTP 302 Found redirect: recommended for websites"
+5. Click "Save"
+
+**How this works now:**
+- Public routes (like `/docs/*`, `/healthz`) work without authentication
+- When you visit `/admin`, the app automatically redirects you to Microsoft login
+- After login, you're redirected back to `/admin` and can access the admin interface
+- The app checks if your email is in the `ADMIN_EMAILS` list
+
+**If you still get "Unauthenticated":**
+This means the app code change hasn't been deployed yet. Redeploy your app with the updated code.
+
+#### Other Common Issues
+1. **App not starting**: Check "Configuration" → "Application settings"
+2. **Database errors**: Verify `SQLITE_DB_PATH` setting  
+3. **Log checking**: Go to Web App → "Log stream" for real-time logs
+4. **Multiple admins**: Use comma-separated emails in `ADMIN_EMAILS` (no spaces around commas)
+
+#### Manual Login URL
+If automatic redirect doesn't work, you can always login manually by visiting:
+`https://your-app-name.azurewebsites.net/.auth/login/aad`
 
 ## 6) Operational Notes
 

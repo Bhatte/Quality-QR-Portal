@@ -50,7 +50,12 @@ function adminAuth(req, res, next) {
 
   // In Azure App Service with Easy Auth, x-ms-client-principal will be present for authenticated users
   const principal = req.headers['x-ms-client-principal'];
-  if (!principal) return res.status(401).send('Unauthenticated.');
+  if (!principal) {
+    // Redirect to Easy Auth login instead of returning 401
+    const loginUrl = '/.auth/login/aad';
+    const returnUrl = encodeURIComponent(req.originalUrl);
+    return res.redirect(`${loginUrl}?post_login_redirect_url=${returnUrl}`);
+  }
 
   // Validate against ADMIN_EMAILS allowlist if provided
   const allow = (process.env.ADMIN_EMAILS || '')
