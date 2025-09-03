@@ -1,18 +1,18 @@
 # Authentication System Update
 
 ## Overview
-The QR Portal has been updated from Azure App Service Easy Auth to a robust Passport.js + Azure AD session-based authentication system.
+The QR Portal has been migrated to a simple, robust local-only authentication system using Express sessions. Azure AD and Easy Auth are no longer used. Admin access is controlled via an email allowlist plus a shared access code.
 
 ## User Login Flow
 
 ### For Administrators
 1. **Access Admin Panel**: Navigate to `/admin` or `/admin.html`
-2. **Automatic Redirect**: If not logged in, automatically redirected to `/auth/login`
-3. **Azure AD Login**: Standard Microsoft login page with company credentials
-4. **Session Creation**: Upon successful login, session cookie is created
-5. **Return to Admin**: Redirected back to the original admin page
-6. **Session Persistence**: Stay logged in for 24 hours (configurable)
-7. **Logout**: Click "Logout" button or visit `/auth/logout`
+2. **Automatic Redirect**: If not logged in, automatically redirected to `/login.html`
+3. **Local Login**: Enter your email (must be in `ADMIN_USERS`) and the shared `LOCAL_ACCESS_CODE`
+4. **Session Creation**: Upon successful login, a session cookie is created
+5. **Return to Admin**: Automatically redirected back to the original admin page
+6. **Session Persistence**: Stays logged in for 24 hours (configurable)
+7. **Logout**: Click "Logout" or visit `/auth/logout`
 
 ### For Public Users
 - No authentication required for viewing documents
@@ -22,9 +22,9 @@ The QR Portal has been updated from Azure App Service Easy Auth to a robust Pass
 ## Technical Implementation
 
 ### Authentication Routes
-- `GET /auth/login` - Redirects to Azure AD login
-- `POST /auth/callback` - Handles Azure AD response
-- `GET /auth/logout` - Logs out and clears session
+- `GET /auth/login` - Redirects to `/login.html`
+- `POST /auth/local/login` - Validates email + access code and creates a session
+- `GET /auth/logout` - Destroys session and redirects to login
 - `GET /auth/status` - Returns current authentication status
 
 ### Session Management
@@ -35,21 +35,17 @@ The QR Portal has been updated from Azure App Service Easy Auth to a robust Pass
 
 ### Admin Protection
 - All `/admin/*` routes require authentication
-- Email-based admin allowlist via `ADMIN_EMAILS` environment variable
+- Email-based admin allowlist via `ADMIN_USERS` environment variable
 - Graceful handling of AJAX vs browser requests
 
 ## Configuration Required
 
 ### Environment Variables
 ```bash
-# Azure AD Configuration
-AZURE_TENANT_ID=31998f14-4995-40af-8e9a-9e62c284c01c
-AZURE_CLIENT_ID=874274e9-b028-40eb-9da6-6228ae8c9de7
-AZURE_CLIENT_SECRET=your-client-secret-here
-AZURE_REDIRECT_URL=https://your-domain.com/auth/callback
-
-# Admin Access Control
-ADMIN_EMAILS=tb500@joneseng.com,other-admin@joneseng.com
+# Local Authentication
+AUTH_MODE=local
+ADMIN_USERS=admin@example.com,manager@example.com
+LOCAL_ACCESS_CODE=change-me-to-a-long-random-string
 
 # Session Security
 SESSION_SECRET=your-super-secret-session-key-change-in-production
@@ -59,15 +55,12 @@ DISABLE_AUTH=false
 ```
 
 ### Azure AD App Registration
-The existing app registration can be reused:
-- **Client ID**: `874274e9-b028-40eb-9da6-6228ae8c9de7`
-- **Tenant ID**: `31998f14-4995-40af-8e9a-9e62c284c01c`
-- **Redirect URI**: Add `https://your-domain.com/auth/callback`
+Not required. All Azure AD references have been removed.
 
 ### Azure App Service Configuration
-1. **Remove Easy Auth**: Disable App Service Authentication in Azure Portal
-2. **Set Environment Variables**: Add the above variables in App Service → Configuration
-3. **Install Dependencies**: Run `npm install` to get new packages
+1. Ensure App Service Authentication is not enforcing a provider
+2. Set environment variables above in App Service → Configuration
+3. Install dependencies and deploy as usual
 
 ## Benefits of New System
 
@@ -87,7 +80,7 @@ The existing app registration can be reused:
 - ✅ Secure session cookies with HttpOnly flag
 - ✅ HTTPS enforcement in production
 - ✅ Admin email allowlist validation
-- ✅ Proper logout with Azure AD session clearing
+- ✅ Proper logout with server-side session destruction
 
 ### Maintainability
 - ✅ Well-documented authentication middleware
@@ -97,19 +90,16 @@ The existing app registration can be reused:
 
 ## Migration Steps
 
-1. **Install Dependencies**: `npm install` (already updated in package.json)
-2. **Configure Environment**: Set Azure AD and session variables
-3. **Update Azure AD**: Add redirect URI for `/auth/callback`
-4. **Disable Easy Auth**: Turn off App Service Authentication
-5. **Deploy and Test**: Verify login/logout flow works
-6. **Update Admin Emails**: Ensure `ADMIN_EMAILS` includes all administrators
+1. Remove any Azure AD-related environment variables from your configuration
+2. Set `AUTH_MODE=local`, `ADMIN_USERS`, `LOCAL_ACCESS_CODE`, and `SESSION_SECRET`
+3. Deploy and test: visit `/admin` to ensure redirect to `/login.html` and successful login
+4. Update admin allowlist as needed
 
 ## Troubleshooting
 
 ### Login Issues
-- Check Azure AD app registration redirect URI
-- Verify `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are correct
-- Ensure `AZURE_CLIENT_SECRET` is valid and not expired
+- Verify your email is present in `ADMIN_USERS`
+- Ensure `LOCAL_ACCESS_CODE` is correct
 
 ### Session Issues
 - Verify `SESSION_SECRET` is set and secure
@@ -117,8 +107,7 @@ The existing app registration can be reused:
 - Confirm session timeout settings
 
 ### Admin Access
-- Verify user email is in `ADMIN_EMAILS` list
-- Check email format matches Azure AD profile
+- Verify user email is in `ADMIN_USERS`
 - Review authentication logs for detailed errors
 
 ## Rollback Plan

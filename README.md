@@ -11,7 +11,7 @@ The QR Portal uses a **single SQLite database** to store both metadata and docum
 - **Embedded File Storage**: All PDF documents stored securely as BLOBs in SQLite database
 - **Permanent Portal URLs**: Stable URLs that never break, served through application security layer
 - **Admin Interface**: Drag-and-drop upload with folder organization and version management
-- **Azure AD Authentication**: Secure admin access via Passport.js + Azure AD sessions
+- **Local Authentication**: Simple session-based login using email allowlist + shared access code
 - **Mobile-Optimized**: Responsive design for field access on mobile devices
 - **Single File Deployment**: Entire application state contained in one SQLite database file
 
@@ -70,15 +70,11 @@ PORT=3000
 NODE_ENV=development
 PUBLIC_BASE_URL=http://localhost:3000
 
-# Authentication Configuration
-ADMIN_EMAILS=admin@example.com,manager@example.com
+# Authentication Configuration (Local-only)
+AUTH_MODE=local
+ADMIN_USERS=admin@example.com,manager@example.com
+LOCAL_ACCESS_CODE=change-me
 DISABLE_AUTH=false
-
-# Azure AD Configuration (Required for Production)
-AZURE_TENANT_ID=your-tenant-id-here
-AZURE_CLIENT_ID=your-client-id-here
-AZURE_CLIENT_SECRET=your-client-secret-here
-AZURE_REDIRECT_URL=https://your-domain.com/auth/callback
 
 # Session Configuration
 SESSION_SECRET=your-super-secret-session-key-change-in-production
@@ -86,26 +82,23 @@ SESSION_SECRET=your-super-secret-session-key-change-in-production
 
 ## Deployment
 
-### Azure App Service Deployment
+### Azure App Service Deployment (Local Auth)
 
 1. **Create Azure Resources**
    - Resource Group
    - App Service Plan (B1/B2 recommended)
    - Web App (Node.js runtime)
-   - Azure AD App Registration
 
-2. **Configure App Settings**
+2. **Configure App Settings (Environment Variables)**
    ```bash
    az webapp config appsettings set \
      --resource-group rg-quality-portal \
      --name <your-webapp-name> \
      --settings \
        SQLITE_DB_PATH=/home/data/quality.sqlite \
-       AZURE_TENANT_ID="your-tenant-id" \
-       AZURE_CLIENT_ID="your-client-id" \
-       AZURE_CLIENT_SECRET="your-client-secret" \
-       AZURE_REDIRECT_URL="https://your-app.azurewebsites.net/auth/callback" \
-       ADMIN_EMAILS="admin@company.com,manager@company.com" \
+       AUTH_MODE=local \
+       ADMIN_USERS="admin@company.com,manager@company.com" \
+       LOCAL_ACCESS_CODE="change-me-to-a-long-random-string" \
        SESSION_SECRET="your-long-random-session-secret" \
        NODE_ENV=production \
        PUBLIC_BASE_URL="https://quality.company.com"
@@ -219,7 +212,7 @@ Regular backups should copy this single file.
 
 ## Security Considerations
 
-- **Authentication**: Azure AD integration via Passport.js sessions
+- **Authentication**: Local session-based login (email allowlist + shared code)
 - **Authorization**: Email-based admin allowlist
 - **File Validation**: MIME type and size validation
 - **Security Headers**: Helmet.js for security headers
@@ -240,10 +233,9 @@ Regular backups should copy this single file.
    - Check file size is under 50MB limit
    - Ensure folder exists or will be created
 
-3. **Authentication Issues**
-   - Verify `ADMIN_EMAILS` configuration
-   - Check Azure AD app registration and redirect URI
-   - Confirm Azure AD environment variables are set
+3. **Authentication Issues (Local)**
+   - Verify `ADMIN_USERS` includes your email (comma-separated, no spaces)
+   - Ensure `LOCAL_ACCESS_CODE` matches what you enter on the login page
    - Test authentication status at `/auth/status`
 
 ### Logs and Debugging

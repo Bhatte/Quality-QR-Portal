@@ -1,110 +1,83 @@
 const express = require('express');
-const passport = require('passport');
+const path = require('path');
 const router = express.Router();
 
-// Login route - redirects to Azure AD
-router.get('/login', (req, res, next) => {
-  console.log('[AUTH] Login requested, redirecting to Azure AD');
-  console.log('[AUTH] Session ID:', req.sessionID);
-  
-  // Store return URL in session
-  if (req.query.returnTo) {
-    req.session.returnTo = req.query.returnTo;
+// Simple in-memory rate limiter for local login
+const loginAttempts = new Map();
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_ATTEMPTS = 30; // per IP per window
+const BLOCK_MS = 5 * 60 * 1000; // block 5 minutes after too many attempts
+
+function checkLoginRate(req) {
+  const now = Date.now();
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const entry = loginAttempts.get(ip) || { count: 0, reset: now + WINDOW_MS, blockedUntil: 0 };
+  if (now > entry.reset) {
+    entry.count = 0;
+    entry.reset = now + WINDOW_MS;
+    entry.blockedUntil = 0;
   }
-  
-  passport.authenticate('azuread-openidconnect', {
-    failureRedirect: '/auth/login?error=1'
-  })(req, res, next);
+  if (entry.blockedUntil && now < entry.blockedUntil) {
+    return { blocked: true, remainingMs: entry.blockedUntil - now };
+  }
+  entry.count += 1;
+  if (entry.count > MAX_ATTEMPTS) {
+    entry.blockedUntil = now + BLOCK_MS;
+  }
+  loginAttempts.set(ip, entry);
+  return { blocked: entry.blockedUntil && now < entry.blockedUntil };
+}
+
+// Login route
+router.get('/login', (req, res) => {
+  // Preserve returnTo if provided
+  if (req.query.returnTo) req.session.returnTo = req.query.returnTo;
+  return res.redirect('/login.html');
 });
 
-// Callback route - handles Azure AD response (POST for form_post mode)
-router.post('/callback', (req, res, next) => {
-  console.log('[AUTH] POST Callback received from Azure AD');
-  console.log('[AUTH] Session ID:', req.sessionID);
-  console.log('[AUTH] Request body keys:', Object.keys(req.body || {}));
-  
-  passport.authenticate('azuread-openidconnect', {
-    failureRedirect: '/auth/login?error=1',
-    failureFlash: true
-  })(req, res, next);
-}, (req, res) => {
-  // Successful authentication
-  console.log(`[AUTH] Login successful for ${req.user.email}`);
-  
-  // Redirect to original URL or admin dashboard
-  const returnTo = req.session.returnTo || '/admin';
-  delete req.session.returnTo;
-  res.redirect(returnTo);
-});
+// Local login handler
+router.post('/local/login', (req, res) => {
 
-// Also handle GET for fallback compatibility
-router.get('/callback', (req, res, next) => {
-  console.log('[AUTH] GET Callback received from Azure AD');
-  console.log('[AUTH] Session ID:', req.sessionID);
-  console.log('[AUTH] Query params:', Object.keys(req.query || {}));
-  
-  passport.authenticate('azuread-openidconnect', {
-    failureRedirect: '/auth/login?error=1',
-    failureFlash: true
-  })(req, res, next);
-}, (req, res) => {
-  // Successful authentication
-  console.log(`[AUTH] Login successful for ${req.user.email}`);
-  
-  // Redirect to original URL or admin dashboard
-  const returnTo = req.session.returnTo || '/admin';
+  const rate = checkLoginRate(req);
+  if (rate.blocked) {
+    return res.status(429).json({ ok: false, error: 'too_many_attempts' });
+  }
+
+  const email = String((req.body?.email || '').trim()).toLowerCase();
+  const code = String((req.body?.code || '').trim());
+
+  const allowed = (process.env.ADMIN_USERS || '')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
+  const accessCode = String(process.env.LOCAL_ACCESS_CODE || '');
+
+  if (!email || !code) return res.status(400).json({ ok: false, error: 'missing_credentials' });
+  if (!allowed.length) return res.status(500).json({ ok: false, error: 'server_not_configured' });
+  if (!accessCode) return res.status(500).json({ ok: false, error: 'server_not_configured' });
+  if (!allowed.includes(email)) return res.status(401).json({ ok: false, error: 'not_allowed' });
+  if (code !== accessCode) return res.status(401).json({ ok: false, error: 'invalid_code' });
+
+  // Success: establish session
+  req.session.user = { email, name: email, provider: 'local' };
+  const returnTo = req.session.returnTo || '/admin.html';
   delete req.session.returnTo;
-  res.redirect(returnTo);
+  return res.json({ ok: true, redirectTo: returnTo });
 });
 
 // Logout route
 router.get('/logout', (req, res) => {
-  const userEmail = req.user?.email || 'unknown';
-  console.log(`[AUTH] Logout requested for ${userEmail}`);
-  
-  req.logout((err) => {
-    if (err) {
-      console.error('[AUTH] Logout error:', err);
-      return res.status(500).json({ error: 'logout_failed' });
-    }
-    
-    req.session.destroy((err) => {
-      if (err) {
-        console.error('[AUTH] Session destroy error:', err);
-      }
-      
-      // Redirect to Azure AD logout to clear SSO session
-      const logoutUrl = `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(process.env.PUBLIC_BASE_URL || 'http://localhost:3000')}`;
-      res.redirect(logoutUrl);
-    });
-  });
+  const email = req.session?.user?.email || 'unknown';
+  console.log(`[AUTH] Local logout requested for ${email}`);
+  return req.session.destroy(() => res.redirect('/login.html'));
 });
 
-// Login error page
-router.get('/login', (req, res) => {
-  const error = req.query.error;
-  if (error) {
-    return res.status(401).json({
-      error: 'authentication_failed',
-      message: 'Login failed. Please try again.',
-      loginUrl: '/auth/login'
-    });
-  }
-  
-  // This shouldn't normally be reached as GET /login redirects to Azure AD
-  res.redirect('/auth/login');
-});
+// (Removed duplicate /auth/login error handler to avoid conflicts)
 
 // Status endpoint for debugging
 router.get('/status', (req, res) => {
-  res.json({
-    authenticated: req.isAuthenticated(),
-    user: req.isAuthenticated() ? {
-      email: req.user.email,
-      name: req.user.name
-    } : null,
-    session: !!req.session
-  });
+  const user = req.session?.user || null;
+  return res.json({ authenticated: !!user, user, session: !!req.session });
 });
 
 module.exports = router;

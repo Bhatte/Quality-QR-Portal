@@ -52,7 +52,7 @@ app.use(helmet({
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+// Static serving is defined later (after admin gate) to protect /admin.html
 
 // Add request logging for debugging
 app.use((req, res, next) => {

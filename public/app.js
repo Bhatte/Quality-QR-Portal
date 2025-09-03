@@ -620,10 +620,16 @@ async function initializeApp() {
     
     const authInfo = document.getElementById('authInfo');
     const userEmail = document.getElementById('userEmail');
+    const logoutBtn = document.getElementById('logoutBtn');
     
     if (auth.authenticated && auth.user) {
       if (userEmail) userEmail.textContent = auth.user.email;
       if (authInfo) authInfo.style.display = 'block';
+    }
+
+    if (logoutBtn && !logoutBtn._bound) {
+      logoutBtn.addEventListener('click', logout);
+      logoutBtn._bound = true;
     }
   } catch (error) {
     console.log('[AUTH] Could not load auth status:', error);

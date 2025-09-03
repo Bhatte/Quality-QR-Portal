@@ -1,6 +1,6 @@
-# QR Portal – Azure Deployment Guide
+# QR Portal – Azure App Service Deployment (Local Auth)
 
-This guide provides step-by-step instructions for deploying the QR Portal to Azure App Service with Passport.js + Azure AD authentication. The application uses a single SQLite database for both metadata and file storage, with session-based authentication replacing Azure Easy Auth.
+This guide explains how to deploy the QR Portal to Azure App Service using local-only authentication. The app uses a single SQLite database for both metadata and file storage, and session-based authentication with an admin email allowlist plus a shared access code. No Azure AD configuration is required.
 
 ## 1) Prerequisites
 
@@ -53,24 +53,10 @@ This guide provides step-by-step instructions for deploying the QR Portal to Azu
 7. Click "Next: Review + create" → "Create"
 8. Wait for deployment to complete (this may take a few minutes)
 
-### 2.4 Create Azure AD App Registration
-1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to "Azure Active Directory" → "App registrations"
-3. Click "+ New registration"
-4. Fill in:
-   - **Name**: `quality-portal-auth`
-   - **Supported account types**: Accounts in this organizational directory only (Single tenant)
-   - **Redirect URI**: Web → `https://[your-webapp-name].azurewebsites.net/auth/callback`
-5. Click "Register"
-6. **Copy the following values** (you'll need them later):
-   - **Application (client) ID**
-   - **Directory (tenant) ID**
-7. Go to "Certificates & secrets" → "Client secrets"
-8. Click "+ New client secret"
-9. Add description: `QR Portal Secret`
-10. Set expiration: 24 months (or your preference)
-11. Click "Add"
-12. **Copy the secret value immediately** (it won't be shown again)
+### 2.4 Authentication Setup
+No Azure AD or identity provider setup is required. The application handles authentication locally using:
+- `ADMIN_USERS` (comma-separated admin email allowlist)
+- `LOCAL_ACCESS_CODE` (shared access code)
 
 ### 2.5 Configure App Settings (Environment Variables)
 1. Go to your Web App in Azure Portal
@@ -82,22 +68,15 @@ This guide provides step-by-step instructions for deploying the QR Portal to Azu
    - Name: `SQLITE_DB_PATH`
    - Value: `/home/data/quality.sqlite`
 
-   **Authentication Configuration:**
-   - Name: `AZURE_TENANT_ID`
-   - Value: `[Directory (tenant) ID from step 2.4]`
-   
-   - Name: `AZURE_CLIENT_ID`
-   - Value: `[Application (client) ID from step 2.4]`
-   
-   - Name: `AZURE_CLIENT_SECRET`
-   - Value: `[Client secret value from step 2.4]`
-   
-   - Name: `AZURE_REDIRECT_URL`
-   - Value: `https://[your-webapp-name].azurewebsites.net/auth/callback`
+   **Authentication Configuration (Local-only):**
+   - Name: `AUTH_MODE`
+   - Value: `local`
 
-   **Admin Access Control:**
-   - Name: `ADMIN_EMAILS`
-   - Value: `tb500@joneseng.com,other-admin@company.com` (comma-separated, no spaces)
+   - Name: `ADMIN_USERS`
+   - Value: `admin@company.com,other-admin@company.com` (comma-separated, no spaces)
+
+   - Name: `LOCAL_ACCESS_CODE`
+   - Value: `[a long random string]`
 
    **Application Configuration:**
    - Name: `NODE_ENV`
@@ -112,12 +91,8 @@ This guide provides step-by-step instructions for deploying the QR Portal to Azu
 5. Click "Save" at the top
 6. Click "Continue" when prompted about app restart
 
-### 2.6 Disable App Service Authentication (Important!)
-**The app now uses Passport.js instead of Easy Auth:**
-1. In your Web App, click "Authentication" in the left menu
-2. If you see any identity providers configured, click "Edit" and then "Delete"
-3. Ensure "Require authentication" is set to "Allow unauthenticated access"
-4. This allows the application to handle authentication internally
+### 2.6 App Service Authentication
+No built-in provider configuration is required. Ensure App Service Authentication is not enforcing a provider so the app can manage sessions internally.
 
 ## 3) Zip Package (What to include)
 
@@ -187,12 +162,12 @@ If the above doesn't work:
 2. You should see the QR Portal homepage
 3. This should work without authentication (public access)
 
-### 5.3 Test Admin Authentication
+### 5.3 Test Admin Authentication (Local)
 1. Go to `https://your-app-name.azurewebsites.net/admin`
-2. You should be redirected to Azure AD login page
-3. Sign in with the email you specified in `ADMIN_EMAILS`
-4. After successful login, you should be redirected back to the admin interface
-5. You should see your email and a "Logout" button in the top-right corner
+2. You will be redirected to the local login page `/login.html`
+3. Sign in using an email present in `ADMIN_USERS` and the `LOCAL_ACCESS_CODE`
+4. After successful login, you will be redirected back to the admin interface
+5. You should see your email and a "Logout" button
 6. Try creating a folder and uploading a test PDF file
 7. Verify you get a success message and a portal URL
 
@@ -233,26 +208,16 @@ If folders appear to be created but don't show up in the UI:
 - **Path issues**: Make sure `SQLITE_DB_PATH` uses forward slashes: `/home/data/quality.sqlite`
 - **Memory issues**: B1/B2 App Service Plan should have sufficient memory for SQLite
 
-#### Authentication Issues
+#### Authentication Issues (Local)
 
-**Common Authentication Problems:**
+1. **Admin Email Not Authorized**
+   - Ensure your login email exactly matches one in `ADMIN_USERS`
+   - No spaces around commas; email comparison is case-insensitive
 
-1. **Redirect URI Mismatch**
-   - Go to Azure AD → App registrations → Your app → Authentication
-   - Ensure redirect URI is exactly: `https://your-app-name.azurewebsites.net/auth/callback`
-   - No trailing slashes or extra characters
+2. **Invalid Access Code**
+   - Verify `LOCAL_ACCESS_CODE` matches what you enter on the login form
 
-2. **Environment Variables Missing**
-   - Check Web App → Configuration → Application settings
-   - Verify all Azure AD variables are set correctly:
-     - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_REDIRECT_URL`
-
-3. **Admin Email Not Authorized**
-   - Check that your login email exactly matches one in `ADMIN_EMAILS`
-   - No spaces around commas in the email list
-   - Email comparison is case-insensitive
-
-4. **Session Issues**
+3. **Session Issues**
    - Ensure `SESSION_SECRET` is set to a long, random string
    - Try clearing browser cookies and logging in again
 
@@ -280,7 +245,7 @@ If folders appear to be created but don't persist:
 #### Other Common Issues
 1. **App not starting**: Check "Configuration" → "Application settings"
 2. **Multiple admins**: Use comma-separated emails in `ADMIN_EMAILS` (no spaces around commas)
-3. **Manual login**: Visit `https://your-app-name.azurewebsites.net/.auth/login/aad`
+3. Remove any references to Azure AD login; the app uses only local auth.
 
 #### SSH Troubleshooting (Advanced)
 If you have SSH access to your Azure App Service:
