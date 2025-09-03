@@ -58,11 +58,17 @@ router.post('/local/login', (req, res) => {
   if (!allowed.includes(email)) return res.status(401).json({ ok: false, error: 'not_allowed' });
   if (code !== accessCode) return res.status(401).json({ ok: false, error: 'invalid_code' });
 
-  // Success: establish session
-  req.session.user = { email, name: email, provider: 'local' };
+  // Success: rotate session to prevent fixation, then establish session
   const returnTo = req.session.returnTo || '/admin.html';
   delete req.session.returnTo;
-  return res.json({ ok: true, redirectTo: returnTo });
+  req.session.regenerate((err) => {
+    if (err) {
+      console.error('[AUTH] Session regenerate failed:', err);
+      return res.status(500).json({ ok: false, error: 'session_error' });
+    }
+    req.session.user = { email, name: email, provider: 'local' };
+    req.session.save(() => res.json({ ok: true, redirectTo: returnTo }));
+  });
 });
 
 // Logout route

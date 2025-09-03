@@ -18,6 +18,7 @@ router.get('/readyz', (req, res) => {
 
 // Diagnostic endpoint for troubleshooting
 router.get('/debug/info', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const fs = require('fs');
     const path = require('path');
@@ -96,6 +97,7 @@ router.get('/debug/info', (req, res) => {
 
 // Test folder creation endpoint
 router.post('/debug/test-folder', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const testName = `test-${Date.now()}`;
     console.log(`[DEBUG] Testing folder creation: ${testName}`);
@@ -149,6 +151,7 @@ router.post('/debug/test-folder', (req, res) => {
 
 // Manual folder creation for testing
 router.post('/debug/create-folder/:name', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const { name } = req.params;
     console.log(`[DEBUG] Manual folder creation: ${name}`);
@@ -195,6 +198,7 @@ router.post('/debug/create-folder/:name', (req, res) => {
 
 // Database status check
 router.get('/debug/db-status', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const dbInstance = require('../db/init');
     
@@ -224,6 +228,7 @@ router.get('/debug/db-status', (req, res) => {
 
 // Authentication status check
 router.get('/debug/auth-status', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const easyAuthOn = /^(true|1|yes)$/i.test(String(process.env.EASY_AUTH || ''));
     const mustEnforce = process.env.NODE_ENV === 'production' || easyAuthOn;
@@ -278,6 +283,7 @@ router.get('/debug/auth-status', (req, res) => {
 
 // Echo selected headers for debugging
 router.all('/debug/echo-headers', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const auth = req.headers['authorization'];
     const zumo = req.headers['x-zumo-auth'];
@@ -300,6 +306,7 @@ router.all('/debug/echo-headers', (req, res) => {
 
 // Test admin functionality without auth (for debugging)
 router.post('/debug/test-admin-folder', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ ok: false, error: 'name required' });
@@ -332,6 +339,7 @@ router.post('/debug/test-admin-folder', (req, res) => {
 
 // Comprehensive functionality test
 router.post('/debug/full-test', async (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   const testResults = {
     timestamp: new Date().toISOString(),
     tests: []

@@ -21,6 +21,13 @@ async function apiCall(url, options = {}, maxRetries = 3) {
       'Accept': 'application/json',
       ...(options.headers || {})
     };
+    // Attach CSRF token for mutating requests (double-submit cookie)
+    const method = (options.method || 'GET').toUpperCase();
+    const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+    const xsrf = getCookie('XSRF-TOKEN');
+    if (isMutating && xsrf) {
+      options.headers['x-csrf-token'] = xsrf;
+    }
     if (!options.credentials) {
       options.credentials = 'same-origin';
     }
@@ -104,6 +111,14 @@ async function apiCall(url, options = {}, maxRetries = 3) {
   }
   
   throw lastError;
+}
+
+// Read cookie helper
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return '';
 }
 
 let ALL_FOLDERS = [];
@@ -380,7 +395,14 @@ async function loadDocuments(folder) {
     const data = await apiCall(`/admin/folder/${encodeURIComponent(folder)}/documents`);
     
     if (!data.documents || !data.documents.length) {
-      docsRoot.innerHTML = '<div class="text-center py-12"><p class="text-muted">No documents uploaded yet.</p></div>';
+      docsRoot.textContent = '';
+      const container = document.createElement('div');
+      container.className = 'text-center py-12';
+      const p = document.createElement('p');
+      p.className = 'text-muted';
+      p.textContent = 'No documents uploaded yet.';
+      container.appendChild(p);
+      docsRoot.appendChild(container);
       CURRENT_DOCS = [];
       return;
     }
@@ -389,7 +411,14 @@ async function loadDocuments(folder) {
     renderDocuments(folder);
   } catch (error) {
     console.error('Failed to load documents:', error);
-    docsRoot.innerHTML = `<div class="text-center py-12"><p class="text-muted text-destructive">Failed to load documents: ${error.message}</p></div>`;
+    docsRoot.textContent = '';
+    const container = document.createElement('div');
+    container.className = 'text-center py-12';
+    const p = document.createElement('p');
+    p.className = 'text-muted text-destructive';
+    p.textContent = `Failed to load documents: ${error.message}`;
+    container.appendChild(p);
+    docsRoot.appendChild(container);
     toast(`Failed to load documents: ${error.message}`, 'error');
     CURRENT_DOCS = [];
   }
@@ -425,11 +454,21 @@ function renderDocuments(folder) {
     const allVersionsOfFile = CURRENT_DOCS.filter(d => d.file_name === doc.file_name);
     const maxVersion = Math.max(...allVersionsOfFile.map(d => d.version));
     const isLatest = doc.version === maxVersion;
-    const versionBadge = isLatest ? 
-      `<span class="badge" style="background: var(--success); color: white;">v${doc.version} (latest)</span>` :
-      `<span class="badge">v${doc.version}</span>`;
-    
-    left.innerHTML = `<strong>${doc.file_name}</strong> ${versionBadge} <span class="text-muted">(${sizeKB}KB)</span>`;
+    // Build left content safely
+    const strong = document.createElement('strong');
+    strong.textContent = doc.file_name;
+    left.appendChild(strong);
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = isLatest ? `v${doc.version} (latest)` : `v${doc.version}`;
+    if (isLatest) { badge.style.background = 'var(--success)'; badge.style.color = 'white'; }
+    left.appendChild(document.createTextNode(' '));
+    left.appendChild(badge);
+    const sizeEl = document.createElement('span');
+    sizeEl.className = 'text-muted';
+    sizeEl.textContent = ` (${sizeKB}KB)`;
+    left.appendChild(document.createTextNode(' '));
+    left.appendChild(sizeEl);
 
     const right = document.createElement('div');
     right.className = 'row';

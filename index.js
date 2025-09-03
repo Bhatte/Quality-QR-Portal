@@ -1,6 +1,7 @@
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
+const crypto = require('crypto');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const session = require('express-session');
@@ -14,6 +15,7 @@ const authRoutes = require('./src/routes/auth.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Configure Passport
 configurePassport();
@@ -23,12 +25,13 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'your-super-secret-key-change-in-production',
   resave: false,
   saveUninitialized: true,
-  name: 'qr-portal-session',
+  name: IS_PROD ? '__Host-qr-portal-session' : 'qr-portal-session',
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: IS_PROD,
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    maxAge: 10 * 60 * 1000, // 10 minutes of inactivity
+    sameSite: IS_PROD ? 'lax' : 'lax',
+    path: '/'
   },
   rolling: true
 }));
@@ -45,10 +48,15 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'"]
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"]
     }
   }
 }));
+// Enable HSTS in production
+if (IS_PROD) {
+  app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true }));
+}
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -58,6 +66,33 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   console.log(`[REQUEST] ${req.method} ${req.path} - Session: ${req.sessionID}`);
   next();
+});
+
+// CSRF double-submit protection for admin state-changing requests
+app.use((req, res, next) => {
+  // Ensure CSRF token exists in session
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(24).toString('hex');
+  }
+  // Set readable cookie for frontend to read (Lax prevents most CSRF on GETs)
+  res.cookie('XSRF-TOKEN', req.session.csrfToken, {
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: IS_PROD,
+    path: '/',
+  });
+
+  // Enforce for admin mutating requests
+  const isAdminPath = req.path.startsWith('/admin/');
+  const method = (req.method || 'GET').toUpperCase();
+  const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (isAdminPath && isMutating) {
+    const token = req.get('x-csrf-token');
+    if (!token || token !== req.session.csrfToken) {
+      return res.status(403).json({ ok: false, error: 'csrf_invalid' });
+    }
+  }
+  return next();
 });
 
 // Trust proxy when running behind load balancers / App Service

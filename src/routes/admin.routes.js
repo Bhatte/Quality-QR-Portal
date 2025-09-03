@@ -17,6 +17,7 @@ const storage = require('../services/storage.service');
 
 // Echo selected headers for admin routes (debug only)
 router.all('/debug/echo-headers', (req, res) => {
+  if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
   try {
     const auth = req.headers['authorization'];
     const zumo = req.headers['x-zumo-auth'];
@@ -132,6 +133,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     
     if (!storage.validateFileSize(req.file.size)) {
       return res.status(400).json({ ok: false, error: 'file_too_large' });
+    }
+
+    // Magic bytes validation for PDF: file should start with %PDF-
+    try {
+      const header = req.file.buffer?.subarray(0, 5).toString('utf8');
+      if (header !== '%PDF-') {
+        return res.status(400).json({ ok: false, error: 'pdf_only' });
+      }
+    } catch (_) {
+      return res.status(400).json({ ok: false, error: 'pdf_only' });
     }
 
     // Ensure folder exists

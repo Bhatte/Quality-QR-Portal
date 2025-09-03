@@ -24,8 +24,17 @@
         const card = document.createElement('a');
         card.className = 'card card--link';
         card.href = `/folder.html?name=${encodeURIComponent(f.name)}`;
-        card.innerHTML = `<div class="card__title">${f.displayName || f.name}</div>
-          <div class="card__meta">${f.name}</div>`;
+
+        const title = document.createElement('div');
+        title.className = 'card__title';
+        title.textContent = f.displayName || f.name;
+
+        const meta = document.createElement('div');
+        meta.className = 'card__meta';
+        meta.textContent = f.name;
+
+        card.appendChild(title);
+        card.appendChild(meta);
         grid.appendChild(card);
       }
     };
@@ -70,8 +79,19 @@
         const li = document.createElement('li');
         const left = document.createElement('div');
         const right = document.createElement('div');
-        left.innerHTML = `<a class="link" target="_blank" href="/docs/${encodeURIComponent(folder)}/${encodeURIComponent(d.file_name)}">${d.file_name}</a>`;
-        right.innerHTML = `<span class="badge">v${d.version}</span>`;
+
+        const a = document.createElement('a');
+        a.className = 'link';
+        a.target = '_blank';
+        a.href = `/docs/${encodeURIComponent(folder)}/${encodeURIComponent(d.file_name)}`;
+        a.textContent = d.file_name;
+        left.appendChild(a);
+
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'badge';
+        badgeEl.textContent = `v${d.version}`;
+        right.appendChild(badgeEl);
+
         li.appendChild(left); li.appendChild(right);
         list.appendChild(li);
       }
