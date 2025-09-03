@@ -8,7 +8,7 @@ function configurePassport() {
     clientID: process.env.AZURE_CLIENT_ID,
     clientSecret: process.env.AZURE_CLIENT_SECRET,
     responseType: 'code',
-    responseMode: 'form_post',
+    responseMode: 'query',
     redirectUrl: process.env.AZURE_REDIRECT_URL || `${process.env.PUBLIC_BASE_URL || 'http://localhost:3000'}/auth/callback`,
     allowHttpForRedirectUrl: process.env.NODE_ENV !== 'production',
     validateIssuer: true,

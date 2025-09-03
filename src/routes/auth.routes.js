@@ -10,9 +10,24 @@ router.get('/login', (req, res, next) => {
   })(req, res, next);
 });
 
-// Callback route - handles Azure AD response
+// Callback route - handles Azure AD response (both GET and POST)
+router.get('/callback', (req, res, next) => {
+  console.log('[AUTH] GET Callback received from Azure AD');
+  passport.authenticate('azuread-openidconnect', {
+    failureRedirect: '/auth/login?error=1'
+  })(req, res, next);
+}, (req, res) => {
+  // Successful authentication
+  console.log(`[AUTH] Login successful for ${req.user.email}`);
+  
+  // Redirect to original URL or admin dashboard
+  const returnTo = req.session.returnTo || '/admin';
+  delete req.session.returnTo;
+  res.redirect(returnTo);
+});
+
 router.post('/callback', (req, res, next) => {
-  console.log('[AUTH] Callback received from Azure AD');
+  console.log('[AUTH] POST Callback received from Azure AD');
   passport.authenticate('azuread-openidconnect', {
     failureRedirect: '/auth/login?error=1'
   })(req, res, next);
