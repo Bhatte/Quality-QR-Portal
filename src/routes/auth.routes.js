@@ -5,16 +5,27 @@ const router = express.Router();
 // Login route - redirects to Azure AD
 router.get('/login', (req, res, next) => {
   console.log('[AUTH] Login requested, redirecting to Azure AD');
+  console.log('[AUTH] Session ID:', req.sessionID);
+  
+  // Store return URL in session
+  if (req.query.returnTo) {
+    req.session.returnTo = req.query.returnTo;
+  }
+  
   passport.authenticate('azuread-openidconnect', {
     failureRedirect: '/auth/login?error=1'
   })(req, res, next);
 });
 
-// Callback route - handles Azure AD response (both GET and POST)
-router.get('/callback', (req, res, next) => {
-  console.log('[AUTH] GET Callback received from Azure AD');
+// Callback route - handles Azure AD response (POST for form_post mode)
+router.post('/callback', (req, res, next) => {
+  console.log('[AUTH] POST Callback received from Azure AD');
+  console.log('[AUTH] Session ID:', req.sessionID);
+  console.log('[AUTH] Request body keys:', Object.keys(req.body || {}));
+  
   passport.authenticate('azuread-openidconnect', {
-    failureRedirect: '/auth/login?error=1'
+    failureRedirect: '/auth/login?error=1',
+    failureFlash: true
   })(req, res, next);
 }, (req, res) => {
   // Successful authentication
@@ -26,10 +37,15 @@ router.get('/callback', (req, res, next) => {
   res.redirect(returnTo);
 });
 
-router.post('/callback', (req, res, next) => {
-  console.log('[AUTH] POST Callback received from Azure AD');
+// Also handle GET for fallback compatibility
+router.get('/callback', (req, res, next) => {
+  console.log('[AUTH] GET Callback received from Azure AD');
+  console.log('[AUTH] Session ID:', req.sessionID);
+  console.log('[AUTH] Query params:', Object.keys(req.query || {}));
+  
   passport.authenticate('azuread-openidconnect', {
-    failureRedirect: '/auth/login?error=1'
+    failureRedirect: '/auth/login?error=1',
+    failureFlash: true
   })(req, res, next);
 }, (req, res) => {
   // Successful authentication

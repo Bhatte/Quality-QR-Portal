@@ -4,17 +4,22 @@ const OIDCStrategy = require('passport-azure-ad').OIDCStrategy;
 // Configure Passport Azure AD strategy
 function configurePassport() {
   const strategy = new OIDCStrategy({
-    identityMetadata: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/.well-known/openid_configuration`,
+    identityMetadata: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/v2.0/.well-known/openid-configuration`,
     clientID: process.env.AZURE_CLIENT_ID,
     clientSecret: process.env.AZURE_CLIENT_SECRET,
     responseType: 'code',
-    responseMode: 'query',
+    responseMode: 'form_post',
     redirectUrl: process.env.AZURE_REDIRECT_URL || `${process.env.PUBLIC_BASE_URL || 'http://localhost:3000'}/auth/callback`,
     allowHttpForRedirectUrl: process.env.NODE_ENV !== 'production',
-    validateIssuer: true,
+    validateIssuer: false,
     passReqToCallback: false,
-    scope: ['profile', 'email'],
-    loggingLevel: 'info'
+    scope: ['openid', 'profile', 'email'],
+    loggingLevel: 'info',
+    loggingNoPII: false,
+    useCookieInsteadOfSession: false,
+    nonceLifetime: 3600,
+    nonceMaxAmount: 5,
+    clockSkew: 300
   }, (iss, sub, profile, accessToken, refreshToken, done) => {
     // Extract user information from Azure AD profile
     const user = {

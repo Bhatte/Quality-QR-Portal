@@ -18,16 +18,19 @@ const PORT = process.env.PORT || 3000;
 // Configure Passport
 configurePassport();
 
-// Session configuration
+// Session configuration - enhanced for Azure App Service
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-super-secret-key-change-in-production',
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true,
+  name: 'qr-portal-session',
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  },
+  rolling: true
 }));
 
 // Initialize Passport
@@ -49,6 +52,13 @@ app.use(helmet({
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+// Add request logging for debugging
+app.use((req, res, next) => {
+  console.log(`[REQUEST] ${req.method} ${req.path} - Session: ${req.sessionID}`);
+  next();
+});
 
 // Trust proxy when running behind load balancers / App Service
 app.set('trust proxy', true);
