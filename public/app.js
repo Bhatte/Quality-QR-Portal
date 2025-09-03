@@ -19,7 +19,9 @@ async function getEasyAuthIdToken() {
     if (!r.ok) return null;
     const arr = await r.json();
     const entry = Array.isArray(arr) ? arr[0] : null;
-    const bearer = entry?.access_token || entry?.id_token;
+    // Prefer id_token for same-site Easy Auth protected API calls.
+    // access_token may target Microsoft Graph (aud=00000003-0000-0000-c000-000000000000) and be rejected.
+    const bearer = entry?.id_token || entry?.access_token;
     if (bearer) {
       __EA_TOKEN = bearer;
       __EA_TOKEN_EXP = now + 9 * 60 * 1000; // cache ~9 minutes
