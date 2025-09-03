@@ -15,6 +15,28 @@ const upload = multer({
 const db = require('../services/database.service');
 const storage = require('../services/storage.service');
 
+// Echo selected headers for admin routes (debug only)
+router.all('/debug/echo-headers', (req, res) => {
+  try {
+    const auth = req.headers['authorization'];
+    const zumo = req.headers['x-zumo-auth'];
+    res.json({
+      ok: true,
+      method: req.method,
+      path: req.path,
+      headers: {
+        authorization: auth ? `[PRESENT:${(String(auth).split(' ')[0] || '').toUpperCase()} ${String(auth).length} bytes]` : '[MISSING]',
+        'x-zumo-auth': zumo ? `[PRESENT:${String(zumo).length} bytes]` : '[MISSING]',
+        'x-requested-with': req.headers['x-requested-with'] || '[MISSING]',
+        accept: req.headers['accept'] || '[MISSING]',
+        'content-type': req.headers['content-type'] || '[MISSING]'
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // Get all documents in a folder (including all versions) - Admin only
 router.get('/folder/:folderName/documents', (req, res) => {
   const { folderName } = req.params;

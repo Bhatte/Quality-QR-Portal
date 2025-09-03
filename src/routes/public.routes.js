@@ -276,6 +276,28 @@ router.get('/debug/auth-status', (req, res) => {
   }
 });
 
+// Echo selected headers for debugging
+router.all('/debug/echo-headers', (req, res) => {
+  try {
+    const auth = req.headers['authorization'];
+    const zumo = req.headers['x-zumo-auth'];
+    res.json({
+      ok: true,
+      method: req.method,
+      path: req.path,
+      headers: {
+        authorization: auth ? `[PRESENT:${(String(auth).split(' ')[0] || '').toUpperCase()} ${String(auth).length} bytes]` : '[MISSING]',
+        'x-zumo-auth': zumo ? `[PRESENT:${String(zumo).length} bytes]` : '[MISSING]',
+        'x-requested-with': req.headers['x-requested-with'] || '[MISSING]',
+        accept: req.headers['accept'] || '[MISSING]',
+        'content-type': req.headers['content-type'] || '[MISSING]'
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // Test admin functionality without auth (for debugging)
 router.post('/debug/test-admin-folder', (req, res) => {
   try {
