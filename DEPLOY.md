@@ -1,6 +1,6 @@
-# QR Portal – Deploy Runbook (Single SQLite Database)
+# QR Portal – Azure Deployment Guide
 
-This runbook describes how to provision Azure resources, configure the app, package source, and deploy via Zip Deploy to Azure App Service. The application now uses a single SQLite database for both metadata and file storage, eliminating the need for Azure Blob Storage.
+This guide provides step-by-step instructions for deploying the QR Portal to Azure App Service with Passport.js + Azure AD authentication. The application uses a single SQLite database for both metadata and file storage, with session-based authentication replacing Azure Easy Auth.
 
 ## 1) Prerequisites
 
@@ -53,56 +53,71 @@ This runbook describes how to provision Azure resources, configure the app, pack
 7. Click "Next: Review + create" → "Create"
 8. Wait for deployment to complete (this may take a few minutes)
 
-### 2.4 Configure App Settings (Environment Variables)
+### 2.4 Create Azure AD App Registration
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Navigate to "Azure Active Directory" → "App registrations"
+3. Click "+ New registration"
+4. Fill in:
+   - **Name**: `quality-portal-auth`
+   - **Supported account types**: Accounts in this organizational directory only (Single tenant)
+   - **Redirect URI**: Web → `https://[your-webapp-name].azurewebsites.net/auth/callback`
+5. Click "Register"
+6. **Copy the following values** (you'll need them later):
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
+7. Go to "Certificates & secrets" → "Client secrets"
+8. Click "+ New client secret"
+9. Add description: `QR Portal Secret`
+10. Set expiration: 24 months (or your preference)
+11. Click "Add"
+12. **Copy the secret value immediately** (it won't be shown again)
+
+### 2.5 Configure App Settings (Environment Variables)
 1. Go to your Web App in Azure Portal
 2. In the left menu, click "Configuration"
 3. Click "Application settings" tab
 4. Add each setting by clicking "+ New application setting":
 
-   **Setting 1:**
+   **Database Configuration:**
    - Name: `SQLITE_DB_PATH`
    - Value: `/home/data/quality.sqlite`
-   - Click "OK"
 
-   **Setting 2:**
+   **Authentication Configuration:**
+   - Name: `AZURE_TENANT_ID`
+   - Value: `[Directory (tenant) ID from step 2.4]`
+   
+   - Name: `AZURE_CLIENT_ID`
+   - Value: `[Application (client) ID from step 2.4]`
+   
+   - Name: `AZURE_CLIENT_SECRET`
+   - Value: `[Client secret value from step 2.4]`
+   
+   - Name: `AZURE_REDIRECT_URL`
+   - Value: `https://[your-webapp-name].azurewebsites.net/auth/callback`
+
+   **Admin Access Control:**
    - Name: `ADMIN_EMAILS`
-   - Value: `admin1@company.com,admin2@company.com,admin3@company.com` (comma-separated list of admin emails)
-   - Click "OK"
+   - Value: `tb500@joneseng.com,other-admin@company.com` (comma-separated, no spaces)
 
-   **Setting 3:**
+   **Application Configuration:**
    - Name: `NODE_ENV`
    - Value: `production`
-   - Click "OK"
-
-   **Setting 4:**
+   
    - Name: `PUBLIC_BASE_URL`
-   - Value: `https://[your-webapp-name].azurewebsites.net` (replace with your actual app URL)
-   - Click "OK"
+   - Value: `https://[your-webapp-name].azurewebsites.net`
+   
+   - Name: `SESSION_SECRET`
+   - Value: `[generate-a-long-random-string-here]` (use a password generator for 32+ characters)
 
 5. Click "Save" at the top
 6. Click "Continue" when prompted about app restart
 
-### 2.5 Configure Easy Auth (App Service Authentication)
+### 2.6 Disable App Service Authentication (Important!)
+**The app now uses Passport.js instead of Easy Auth:**
 1. In your Web App, click "Authentication" in the left menu
-2. Click "Add identity provider"
-3. Select "Microsoft" as the identity provider
-4. Fill in:
-   - **App registration type**: Create new app registration
-   - **Name**: `quality-portal-auth` (or your preferred name)
-   - **Supported account types**: Current tenant - Single tenant
-   - **Restrict access**: **Allow unauthenticated access** (this is key!)
-   - **Unauthenticated requests**: HTTP 302 Found redirect: recommended for websites
-5. Click "Add"
-6. Wait for the configuration to complete
-
-### 2.6 Understanding the Configuration
-With this setup:
-- **Public routes** (like `/docs/*`, `/healthz`) work without authentication
-- **Admin routes** (`/admin`) will redirect unauthenticated users to Microsoft login
-- **After login**, users are redirected back and the app receives the `x-ms-client-principal` header
-- **The app code** handles checking if the logged-in user is in the `ADMIN_EMAILS` list
-
-This configuration allows Easy Auth to provide authentication services while letting your application control which routes require authentication.
+2. If you see any identity providers configured, click "Edit" and then "Delete"
+3. Ensure "Require authentication" is set to "Allow unauthenticated access"
+4. This allows the application to handle authentication internally
 
 ## 3) Zip Package (What to include)
 
@@ -174,11 +189,12 @@ If the above doesn't work:
 
 ### 5.3 Test Admin Authentication
 1. Go to `https://your-app-name.azurewebsites.net/admin`
-2. You should be redirected to Microsoft login
+2. You should be redirected to Azure AD login page
 3. Sign in with the email you specified in `ADMIN_EMAILS`
-4. You should see the admin interface after successful login
-5. Try uploading a test PDF file
-6. Verify you get a success message and a portal URL
+4. After successful login, you should be redirected back to the admin interface
+5. You should see your email and a "Logout" button in the top-right corner
+6. Try creating a folder and uploading a test PDF file
+7. Verify you get a success message and a portal URL
 
 ### 5.4 Test Document Access
 1. After uploading a document, copy the generated portal URL
@@ -218,22 +234,30 @@ If folders appear to be created but don't show up in the UI:
 - **Memory issues**: B1/B2 App Service Plan should have sufficient memory for SQLite
 
 #### Authentication Issues
-The correct Easy Auth configuration should be:
 
-1. Go to your Web App → Authentication
-2. Click "Edit" next to your Microsoft provider
-3. Set **Restrict access** to "Allow unauthenticated access"
-4. Set **Unauthenticated requests** to "HTTP 302 Found redirect: recommended for websites"
-5. Click "Save"
+**Common Authentication Problems:**
 
-**How this works now:**
-- Public routes (like `/docs/*`, `/healthz`) work without authentication
-- When you visit `/admin`, the app automatically redirects you to Microsoft login
-- After login, you're redirected back to `/admin` and can access the admin interface
-- The app checks if your email is in the `ADMIN_EMAILS` list
+1. **Redirect URI Mismatch**
+   - Go to Azure AD → App registrations → Your app → Authentication
+   - Ensure redirect URI is exactly: `https://your-app-name.azurewebsites.net/auth/callback`
+   - No trailing slashes or extra characters
 
-**If you still get "Unauthenticated":**
-This means the app code change hasn't been deployed yet. Redeploy your app with the updated code.
+2. **Environment Variables Missing**
+   - Check Web App → Configuration → Application settings
+   - Verify all Azure AD variables are set correctly:
+     - `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_REDIRECT_URL`
+
+3. **Admin Email Not Authorized**
+   - Check that your login email exactly matches one in `ADMIN_EMAILS`
+   - No spaces around commas in the email list
+   - Email comparison is case-insensitive
+
+4. **Session Issues**
+   - Ensure `SESSION_SECRET` is set to a long, random string
+   - Try clearing browser cookies and logging in again
+
+**Test Authentication Status:**
+Visit `https://your-app-name.azurewebsites.net/auth/status` to see current authentication state.
 
 #### Folder Creation Issues (Advanced Debugging)
 If folders appear to be created but don't persist:

@@ -11,7 +11,7 @@ The QR Portal uses a **single SQLite database** to store both metadata and docum
 - **Embedded File Storage**: All PDF documents stored securely as BLOBs in SQLite database
 - **Permanent Portal URLs**: Stable URLs that never break, served through application security layer
 - **Admin Interface**: Drag-and-drop upload with folder organization and version management
-- **Azure AD Authentication**: Secure admin access via App Service Easy Auth
+- **Azure AD Authentication**: Secure admin access via Passport.js + Azure AD sessions
 - **Mobile-Optimized**: Responsive design for field access on mobile devices
 - **Single File Deployment**: Entire application state contained in one SQLite database file
 
@@ -70,9 +70,18 @@ PORT=3000
 NODE_ENV=development
 PUBLIC_BASE_URL=http://localhost:3000
 
-# Authentication (Production)
+# Authentication Configuration
 ADMIN_EMAILS=admin@example.com,manager@example.com
-EASY_AUTH=false
+DISABLE_AUTH=false
+
+# Azure AD Configuration (Required for Production)
+AZURE_TENANT_ID=your-tenant-id-here
+AZURE_CLIENT_ID=your-client-id-here
+AZURE_CLIENT_SECRET=your-client-secret-here
+AZURE_REDIRECT_URL=https://your-domain.com/auth/callback
+
+# Session Configuration
+SESSION_SECRET=your-super-secret-session-key-change-in-production
 ```
 
 ## Deployment
@@ -83,7 +92,7 @@ EASY_AUTH=false
    - Resource Group
    - App Service Plan (B1/B2 recommended)
    - Web App (Node.js runtime)
-   - Configure Easy Auth with Azure AD
+   - Azure AD App Registration
 
 2. **Configure App Settings**
    ```bash
@@ -92,7 +101,12 @@ EASY_AUTH=false
      --name <your-webapp-name> \
      --settings \
        SQLITE_DB_PATH=/home/data/quality.sqlite \
+       AZURE_TENANT_ID="your-tenant-id" \
+       AZURE_CLIENT_ID="your-client-id" \
+       AZURE_CLIENT_SECRET="your-client-secret" \
+       AZURE_REDIRECT_URL="https://your-app.azurewebsites.net/auth/callback" \
        ADMIN_EMAILS="admin@company.com,manager@company.com" \
+       SESSION_SECRET="your-long-random-session-secret" \
        NODE_ENV=production \
        PUBLIC_BASE_URL="https://quality.company.com"
    ```
@@ -205,7 +219,7 @@ Regular backups should copy this single file.
 
 ## Security Considerations
 
-- **Authentication**: Azure AD integration via Easy Auth
+- **Authentication**: Azure AD integration via Passport.js sessions
 - **Authorization**: Email-based admin allowlist
 - **File Validation**: MIME type and size validation
 - **Security Headers**: Helmet.js for security headers
@@ -228,8 +242,9 @@ Regular backups should copy this single file.
 
 3. **Authentication Issues**
    - Verify `ADMIN_EMAILS` configuration
-   - Check Easy Auth setup in Azure
-   - Confirm `NODE_ENV` and `EASY_AUTH` settings
+   - Check Azure AD app registration and redirect URI
+   - Confirm Azure AD environment variables are set
+   - Test authentication status at `/auth/status`
 
 ### Logs and Debugging
 

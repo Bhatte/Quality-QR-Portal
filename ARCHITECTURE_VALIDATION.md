@@ -6,35 +6,42 @@ The QR Portal has been successfully rearchitected to use **embedded SQLite stora
 
 ## Key Changes Implemented
 
-### 1. Database Schema Updated
+### 1. Authentication System Replaced
+- ✅ Replaced Azure Easy Auth with Passport.js + Azure AD
+- ✅ Implemented session-based authentication with secure cookies
+- ✅ Added proper login/logout routes (`/auth/login`, `/auth/logout`)
+- ✅ Created authentication middleware with admin email validation
+- ✅ Removed problematic token-based authentication
+
+### 2. Database Schema Updated
 - ✅ Added `file_content BLOB` column for embedded file storage
 - ✅ Added `file_size INTEGER` and `mime_type TEXT` columns
 - ✅ Removed `blob_url TEXT` dependency
 - ✅ Maintained all existing relationships and indexing
 
-### 2. Storage Service Refactored
+### 3. Storage Service Refactored
 - ✅ Removed Azure Blob Storage dependencies
 - ✅ Implemented file validation utilities (type, size, filename sanitization)
 - ✅ Eliminated external storage configuration requirements
 
-### 3. API Endpoints Updated
+### 4. API Endpoints Updated
 - ✅ `/docs/:folder/:fileName` now serves files directly from database
 - ✅ Upload endpoint stores files as BLOBs in SQLite
 - ✅ Proper security headers for file serving (Content-Type, Cache-Control, etc.)
 - ✅ Enhanced error handling for file operations
 
-### 4. Dependencies Simplified
+### 5. Dependencies Updated
+- ✅ Added `passport`, `passport-azure-ad`, `express-session`
 - ✅ Removed `@azure/storage-blob` package
 - ✅ Removed `azurite` development dependency
 - ✅ Eliminated storage emulator requirements
 
-### 5. Documentation Comprehensive Update
-- ✅ Updated deployment runbook (DEPLOY.md)
-- ✅ Updated solution design document
-- ✅ Updated functional specification
-- ✅ Updated build playbook (Tasks.md)
-- ✅ Created comprehensive README.md
+### 6. Documentation Comprehensive Update
+- ✅ Updated deployment runbook (DEPLOY.md) with new Azure AD setup
+- ✅ Updated README.md with authentication changes
+- ✅ Created AUTHENTICATION_UPDATE.md guide
 - ✅ Updated environment variable examples
+- ✅ Removed obsolete Easy Auth documentation
 
 ## Security Enhancements
 
@@ -130,7 +137,8 @@ The QR Portal has been successfully rearchitected to use **embedded SQLite stora
 ## Security Validation
 
 ### Authentication
-- ✅ Easy Auth integration maintained
+- ✅ Passport.js + Azure AD integration implemented
+- ✅ Session-based authentication functional
 - ✅ Admin email allowlist functional
 - ✅ Public access properly controlled
 

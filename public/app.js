@@ -7,41 +7,18 @@ function toast(msg, type = 'info') {
   setTimeout(() => t.remove(), type === 'error' ? 4000 : 2400);
 }
 
-// Acquire and cache Easy Auth id_token to use as Authorization header when calling admin APIs.
-// This helps avoid upstream Easy Auth CSRF rejections for state-changing methods.
-let __EA_TOKEN = null;
-let __EA_TOKEN_EXP = 0;
-async function getEasyAuthIdToken() {
-  try {
-    const now = Date.now();
-    if (__EA_TOKEN && now < __EA_TOKEN_EXP) return __EA_TOKEN;
-    const r = await fetch('/.auth/me', { credentials: 'same-origin' });
-    if (!r.ok) return null;
-    const arr = await r.json();
-    const entry = Array.isArray(arr) ? arr[0] : null;
-    // Prefer id_token for same-site Easy Auth protected API calls.
-    // access_token may target Microsoft Graph (aud=00000003-0000-0000-c000-000000000000) and be rejected.
-    const bearer = entry?.id_token || entry?.access_token;
-    if (bearer) {
-      __EA_TOKEN = bearer;
-      __EA_TOKEN_EXP = now + 9 * 60 * 1000; // cache ~9 minutes
-      return __EA_TOKEN;
-    }
-  } catch (_) { /* ignore */ }
-  return null;
-}
+// Session-based authentication - no token management needed
+// Authentication is handled via session cookies with Passport.js
 
 // Retry wrapper for API calls with detailed debugging
 async function apiCall(url, options = {}, maxRetries = 3) {
   let lastError;
   
-  // Only add AJAX headers for admin routes to help with Azure Easy Auth detection
+  // Add standard AJAX headers for admin routes (session-based auth)
   if (url.startsWith('/admin/')) {
-    const token = await getEasyAuthIdToken().catch(() => null);
     options.headers = {
       'X-Requested-With': 'XMLHttpRequest',
       'Accept': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}`, 'X-ZUMO-AUTH': token } : {}),
       ...(options.headers || {})
     };
     if (!options.credentials) {
@@ -57,16 +34,15 @@ async function apiCall(url, options = {}, maxRetries = 3) {
       console.log(`[API] Response status: ${response.status} ${response.statusText}`);
       console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()));
       const contentType = response.headers.get('content-type') || '';
-      // Handle Azure Easy Auth redirections or HTML login pages
-      if (response.redirected && response.url.includes('/.auth/login')) {
-        console.log('[API] Redirected to Easy Auth login, forwarding browser.');
+      // Handle authentication redirections
+      if (response.redirected && response.url.includes('/auth/login')) {
+        console.log('[API] Redirected to login, forwarding browser.');
         window.location.href = response.url;
         return;
       }
       if (contentType.includes('text/html')) {
         console.log('[API] HTML response detected for API call; redirecting to login.');
-        const returnUrl = encodeURIComponent(window.location.href);
-        window.location.href = `/.auth/login/aad?post_login_redirect_url=${returnUrl}`;
+        window.location.href = '/auth/login';
         return;
       }
 
@@ -86,11 +62,7 @@ async function apiCall(url, options = {}, maxRetries = 3) {
         // Handle authentication errors
         if (response.status === 401 || data.error === 'authentication_required') {
           console.log('[API] Authentication required, redirecting to login');
-          if (data.loginUrl) {
-            window.location.href = data.loginUrl;
-          } else {
-            window.location.href = '/.auth/login/aad';
-          }
+          window.location.href = '/auth/login';
           return; // Don't throw error, just redirect
         }
         
@@ -639,3 +611,33 @@ function updateUploadState() {
   const ok = Boolean(folder) && Boolean(isPdf);
   if (uploadBtn) uploadBtn.disabled = !ok;
 }
+
+// Initialize authentication status and load folders
+async function initializeApp() {
+  try {
+    const authStatus = await fetch('/auth/status', { credentials: 'same-origin' });
+    const auth = await authStatus.json();
+    
+    const authInfo = document.getElementById('authInfo');
+    const userEmail = document.getElementById('userEmail');
+    
+    if (auth.authenticated && auth.user) {
+      if (userEmail) userEmail.textContent = auth.user.email;
+      if (authInfo) authInfo.style.display = 'block';
+    }
+  } catch (error) {
+    console.log('[AUTH] Could not load auth status:', error);
+  }
+  
+  refreshFolders();
+}
+
+// Logout function
+function logout() {
+  window.location.href = '/auth/logout';
+}
+
+// Make logout available globally
+window.logout = logout;
+
+initializeApp();
