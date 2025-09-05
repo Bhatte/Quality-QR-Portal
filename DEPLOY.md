@@ -2,6 +2,50 @@
 
 This guide explains how to deploy the QR Portal to Azure App Service using local-only authentication. The app uses a single SQLite database for both metadata and file storage, and session-based authentication with an admin email allowlist plus a shared access code. No Azure AD configuration is required.
 
+## 0) GitHub-linked Continuous Deployment (Recommended)
+
+This repository includes a GitHub Actions workflow at `.github/workflows/main_quality-qr-portal.yml` that automatically deploys to your Azure Web App on every push to the `main` branch.
+
+### 0.1 Prerequisites
+- An existing Azure Web App (Linux, Node 18/20 compatible)
+- Permissions to configure Deployment Center and federated credentials
+- Your repo hosted on GitHub with the workflow file present (already in this repo)
+
+### 0.2 Connect Azure Web App to GitHub
+1. In Azure Portal, open your Web App (e.g., `quality-qr-portal`).
+2. Go to `Deployment Center` → `Settings`.
+3. Choose `GitHub` as the source.
+4. Select your organization, repository, and branch (`main`).
+5. Complete the wizard to authorize GitHub. Azure will create the federated credentials (OIDC) and configure the workflow to target your app.
+
+Notes:
+- The workflow already targets `app-name: 'quality-qr-portal'`. If your Web App name differs, update `app-name` in `.github/workflows/main_quality-qr-portal.yml`.
+- The workflow logs in with `azure/login@v2` using federated credentials and deploys via `azure/webapps-deploy@v3`.
+
+### 0.3 Environment Variables (App Settings)
+Set the same App Settings as documented in section `2.5 Configure App Settings (Environment Variables)`, including:
+- `PUBLIC_BASE_URL`
+- `SESSION_SECRET`
+- `AUTH_MODE=local`, `ADMIN_USERS`, `LOCAL_ACCESS_CODE`
+- `SQLITE_DB_PATH`
+- ME-QR settings: `MEQR_API_TOKEN`, `MEQR_QR_PATTERN_COLOR=#000000`, `MEQR_QR_BG_COLOR=#FFFFFF`, `MEQR_QR_CORNERS_OUTER_COLOR=#000000`, `MEQR_QR_CORNERS_INNER_COLOR=#000000`, `MEQR_QR_FRAME_COLOR=#000000`, `MEQR_QR_FRAME_BG_COLOR=#FFFFFF`
+
+Frames are only supported with base design in ME‑QR. To enable the selected helmet frame globally:
+- Set `MEQR_QR_DESIGN_TYPE=base`
+- Set `MEQR_QR_FRAME_NAME=hundredTventyFive` (selected from probe index 124)
+
+Click `Save` to restart the app.
+
+### 0.4 Deploy
+Push to `main`. GitHub Actions will:
+- Install dependencies and run optional build/test
+- Deploy the repo to your Web App
+
+Check progress in GitHub Actions and Azure `Deployment Center` logs.
+
+### 0.5 Rollback
+Revert or cherry-pick a previous commit into `main`. The workflow will redeploy the reverted state automatically.
+
 ## 1) Prerequisites
 
 - Azure subscription + permissions
@@ -115,7 +159,7 @@ Create zip from repo root (bash):
 zip -r deploy/qr-portal.zip index.js package*.json public src -x "node_modules/*" ".env" "data/*"
 ```
 
-## 4) Deploy via Zip Deploy (Azure Portal)
+## 4) Deploy via Zip Deploy (Azure Portal) — Legacy/Alternative
 
 ### 4.1 Create Deployment Package
 1. Open PowerShell in your project root directory
@@ -223,6 +267,30 @@ If folders appear to be created but don't show up in the UI:
 
 **Test Authentication Status:**
 Visit `https://your-app-name.azurewebsites.net/auth/status` to see current authentication state.
+
+### 5.6 ME‑QR Frame Probe (Identify the helmet frame)
+
+Use the secure admin-only probe endpoint to preview frames without persisting images:
+
+1. Ensure `MEQR_API_TOKEN` is set in App Settings.
+2. Temporarily enable probe endpoints by setting `ENABLE_PROBE=true` in App Settings and saving (app restarts). The probe endpoints return 404 unless this flag is true.
+3. Log in to the admin UI at `/admin`.
+3. Call the probe endpoint (replace link with a document URL you want encoded):
+
+   `GET /admin/qr/probe/frames?link=https://your-app-name.azurewebsites.net/docs/{folder}/{file.pdf}&start=0&count=12`
+
+   - `start` paginates through the available frame names.
+   - `count` (1–24) controls how many thumbnails to preview per page (small 320px PNGs).
+   - The response contains base64 PNG previews and the `name` for each frame.
+
+4. Find the “Labor Day” helmet frame visually and note its `name`.
+5. Set `MEQR_QR_DESIGN_TYPE=base` and `MEQR_QR_FRAME_NAME=hundredTventyFive` in App Settings. Save to restart.
+6. Set `ENABLE_PROBE=false` to disable probe endpoints in production.
+7. Generate a QR via the admin UI; it should render using your selected frame with black-on-white styling.
+
+Tips:
+- Requests are authenticated under the `/admin` router and rate-limited. Keep `count` modest to avoid unnecessary API calls.
+- Colors default to black (`#000000`) on white (`#FFFFFF`) and can be overridden per request in `/admin/qr/link`.
 
 #### Folder Creation Issues (Advanced Debugging)
 If folders appear to be created but don't persist:

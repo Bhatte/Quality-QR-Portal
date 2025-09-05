@@ -68,6 +68,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Basic health endpoints
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true });
+});
+app.get('/readyz', (req, res) => {
+  res.json({ ok: true, status: 'ready' });
+});
+
 // CSRF double-submit protection for admin state-changing requests
 app.use((req, res, next) => {
   // Ensure CSRF token exists in session

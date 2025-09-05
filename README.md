@@ -14,6 +14,7 @@ The QR Portal uses a **single SQLite database** to store both metadata and docum
 - **Local Authentication**: Simple session-based login using email allowlist + shared access code
 - **Mobile-Optimized**: Responsive design for field access on mobile devices
 - **Single File Deployment**: Entire application state contained in one SQLite database file
+ - **ME‑QR Integration**: Server-side QR generation via ME‑QR Link API with default helmet frame
 
 ## Security Model
 
@@ -78,11 +79,30 @@ DISABLE_AUTH=false
 
 # Session Configuration
 SESSION_SECRET=your-super-secret-session-key-change-in-production
+
+# ME‑QR Configuration (frames only work with base design)
+MEQR_API_TOKEN=your-me-qr-api-token
+MEQR_QR_DESIGN_TYPE=base
+MEQR_QR_FRAME_NAME=hundredTventyFive
+MEQR_QR_SIZE=1024
+MEQR_QR_ECL=H
+MEQR_QR_PATTERN_COLOR=#000000
+MEQR_QR_BG_COLOR=#FFFFFF
+MEQR_QR_CORNERS_OUTER_COLOR=#000000
+MEQR_QR_CORNERS_INNER_COLOR=#000000
+MEQR_QR_LOGO_URL=http://localhost:3000/logo.png
+MEQR_QR_FRAME_COLOR=#000000
+MEQR_QR_FRAME_BG_COLOR=#FFFFFF
+
+# Optional feature flags
+ENABLE_PROBE=false  # set true temporarily to use probe endpoints
 ```
 
 ## Deployment
 
 ### Azure App Service Deployment (Local Auth)
+
+See `DEPLOY.md` for end‑to‑end GitHub‑linked CI/CD instructions and post‑deploy tests (including probe usage).
 
 1. **Create Azure Resources**
    - Resource Group
@@ -136,6 +156,10 @@ SESSION_SECRET=your-super-secret-session-key-change-in-production
 - `DELETE /admin/folder/:name` - Delete folder and all documents
 - `POST /admin/upload` - Upload document (multipart/form-data)
 - `DELETE /admin/document/:id` - Delete specific document version
+- `POST /admin/qr/link` - Generate a QR PNG for a specific PDF and store alongside it
+- Probe utilities (feature‑flagged; require `ENABLE_PROBE=true`):
+  - `GET /admin/qr/probe/frames?link=...&start=0&count=12` - Base64 previews to identify frames
+  - `POST /admin/qr/probe/export?link=...&size=512` - Writes gallery to `public/frame-probe/<timestamp>/`
 
 ## Database Schema
 
@@ -171,7 +195,7 @@ CREATE TABLE documents (
 2. **Create Folders** for different quality categories (welding, electrical, etc.)
 3. **Upload Documents** via drag-and-drop or file selection
 4. **Copy Portal URLs** for QR code generation
-5. **Generate QR Codes** manually using any QR service with the portal URL
+5. **Generate QR Codes** via Admin action (`POST /admin/qr/link`) — defaults to ME‑QR base design with helmet frame `hundredTventyFive` and black‑on‑white styling
 6. **Print and Deploy** QR codes at quality verification stations
 
 ### For Field Workers

@@ -443,9 +443,27 @@ function renderDocuments(folder) {
   if (!items.length) { docsRoot.textContent = 'No matching documents.'; return; }
   
   const ul = document.createElement('ul');
-  
+
+  // Helper: get latest QR document for a base name
+  const getLatestQr = (base) => {
+    const target = `${base}-qr.png`;
+    const versions = CURRENT_DOCS.filter(d => d.file_name === target);
+    if (!versions.length) return null;
+    versions.sort((a, b) => b.version - a.version);
+    return versions[0];
+  };
+
   // Render each document version as a separate row
   for (const doc of items) {
+    // Hide standalone QR image rows (they will be shown inline with their PDF)
+    const isQrPng = /-qr\.png$/i.test(doc.file_name || '');
+    if (isQrPng) {
+      const base = String(doc.file_name).replace(/-qr\.png$/i, '');
+      const hasPdfSibling = CURRENT_DOCS.some(d => /\.pdf$/i.test(d.file_name) && d.file_name.replace(/\.[^.]+$/, '') === base);
+      if (hasPdfSibling) {
+        continue; // skip separate QR row to reduce confusion
+      }
+    }
     const li = document.createElement('li');
     const left = document.createElement('div');
     const sizeKB = Math.round(doc.file_size / 1024);
@@ -488,6 +506,76 @@ function renderDocuments(folder) {
       try { await navigator.clipboard.writeText(url); toast('Portal URL copied'); } catch(_) {}
     });
     
+    right.appendChild(open);
+    right.appendChild(copy);
+
+    // QR Generation controls for PDF documents
+    const isPdfDoc = (doc.mime_type || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(doc.file_name || '');
+    if (isPdfDoc) {
+      const base = String(doc.file_name).replace(/\.[^.]+$/, '');
+      const qrDoc = getLatestQr(base);
+
+      if (qrDoc) {
+        const openQr = document.createElement('a');
+        openQr.href = `/docs/${encodeURIComponent(folder)}/${encodeURIComponent(qrDoc.file_name)}`;
+        openQr.target = '_blank';
+        openQr.className = 'link';
+        openQr.textContent = 'Open QR';
+        right.appendChild(openQr);
+
+        // Download QR
+        const downloadQr = document.createElement('a');
+        downloadQr.href = openQr.href;
+        downloadQr.download = qrDoc.file_name;
+        downloadQr.className = 'btn btn--outline btn--sm';
+        downloadQr.textContent = 'Download';
+        right.appendChild(downloadQr);
+
+        // Inline preview thumbnail (placed under left column)
+        const previewWrap = document.createElement('div');
+        previewWrap.style.display = 'block';
+        previewWrap.style.marginTop = '8px';
+        const thumb = document.createElement('img');
+        thumb.src = openQr.href;
+        thumb.alt = `QR preview for ${doc.file_name}`;
+        thumb.width = 96;
+        thumb.loading = 'lazy';
+        thumb.style.height = 'auto';
+        thumb.style.border = '1px solid var(--border)';
+        thumb.style.borderRadius = '12px';
+        previewWrap.appendChild(thumb);
+        left.appendChild(previewWrap);
+      }
+
+      const gen = document.createElement('button');
+      gen.className = 'btn btn--primary btn--sm';
+      gen.title = qrDoc ? 'Regenerate QR' : 'Generate QR';
+      gen.textContent = qrDoc ? 'Regenerate QR' : 'Generate QR';
+      gen.addEventListener('click', async () => {
+        const prev = gen.textContent;
+        gen.disabled = true;
+        gen.textContent = 'Generating...';
+        try {
+          const payload = { folder, fileName: doc.file_name };
+          await apiCall('/admin/qr/link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          toast('QR generated');
+          await loadDocuments(folder);
+        } catch (error) {
+          console.error('QR generation failed:', error);
+          toast(`QR generation failed: ${error.message}`, 'error');
+        } finally {
+          gen.disabled = false;
+          gen.textContent = prev;
+        }
+      });
+
+      right.appendChild(gen);
+    }
+
     const del = document.createElement('button');
     del.className = 'btn btn--outline btn--sm';
     del.title = `Delete version ${doc.version}`;
