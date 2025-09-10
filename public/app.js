@@ -745,13 +745,22 @@ async function initializeApp() {
     const authStatus = await fetch('/auth/status', { credentials: 'same-origin' });
     const auth = await authStatus.json();
     
-    const authInfo = document.getElementById('authInfo');
+    // Elements that may exist depending on page
+    const authInfo = document.getElementById('authInfo'); // legacy floating box (removed on admin.html)
     const userEmail = document.getElementById('userEmail');
+    const userBadge = document.getElementById('userBadge'); // inline header badge on admin page
     const logoutBtn = document.getElementById('logoutBtn');
     
     if (auth.authenticated && auth.user) {
+      // Legacy support
       if (userEmail) userEmail.textContent = auth.user.email;
       if (authInfo) authInfo.style.display = 'block';
+      // New inline badge in header
+      if (userBadge) {
+        userBadge.textContent = auth.user.email;
+        userBadge.style.display = 'inline-flex';
+        userBadge.title = `Signed in as ${auth.user.email}`;
+      }
     }
 
     if (logoutBtn && !logoutBtn._bound) {

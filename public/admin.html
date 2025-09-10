@@ -5,26 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>QR Portal Admin</title>
   <style>
-    .auth-info {
-      position: fixed;
-      top: var(--space-4);
-      right: var(--space-4);
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: var(--space-3);
-      font-size: var(--text-sm);
-      z-index: 1000;
-    }
-    .logout-btn {
-      margin-left: var(--space-2);
-      padding: var(--space-1) var(--space-2);
+    /* Local tweaks specific to admin header badge */
+    .user-badge {
+      max-width: min(60vw, 420px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-size: var(--text-xs);
-      background: var(--destructive);
-      color: var(--destructive-foreground);
-      border: none;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
+      padding: 4px 8px;
     }
   </style>
   <link rel="stylesheet" href="/styles.css" />
@@ -82,26 +70,34 @@
 </head>
 <body>
   <header class="header">
-    <div class="container">
+    <div class="container hero-landing">
       <div class="brand">
         <a href="/" class="brand__logo-link" aria-label="Go to Quality Portal Home">
           <img src="/logo.png" class="brand__logo" alt="Jones Engineering logo" />
         </a>
         <div>
           <h1 class="brand__title">QR Portal — Admin</h1>
+          <div class="rule" aria-hidden="true"></div>
           <p class="subtitle">Manage folders, upload PDFs, and handle versions</p>
         </div>
         <div class="admin-header-actions">
-          <div class="badge">Administrator</div>
+          <span id="userBadge" class="badge user-badge" style="display:none" title="Signed in as"></span>
           <a href="/" class="btn btn--outline btn--sm">View Portal</a>
+          <button class="btn btn--destructive btn--sm" id="logoutBtn" type="button">Logout</button>
+        </div>
+      </div>
+      <!-- Decorative brand motif (non-interactive) -->
+      <div class="motif" aria-hidden="true">
+        <div class="motif__grid">
+          <div class="motif__diamond motif__diamond--g2" style="grid-column:2;grid-row:1"></div>
+          <div class="motif__diamond motif__diamond--y"  style="grid-column:3;grid-row:2"></div>
+          <div class="motif__diamond motif__diamond--g1" style="grid-column:4;grid-row:3"></div>
+          <div class="motif__diamond motif__diamond--g3" style="grid-column:2;grid-row:3"></div>
+          <div class="motif__diamond motif__diamond--g2" style="grid-column:3;grid-row:4"></div>
         </div>
       </div>
       
-      <!-- Authentication info -->
-      <div class="auth-info" id="authInfo" style="display: none;">
-        <span id="userEmail">Loading...</span>
-        <button class="logout-btn" id="logoutBtn" type="button">Logout</button>
-      </div>
+      <!-- Removed floating auth box in favor of inline header actions -->
       </div>
     </div>
   </header>

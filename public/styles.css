@@ -1,5 +1,16 @@
 /* QR Portal - Modern Design System */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Optional corporate font face. Drop your font files into
+   public/assets/fonts and set --font-brand to match the face name. */
+@font-face {
+  font-family: 'CorporateBrand';
+  src: local('CorporateBrand'), local('Corporate Brand'),
+       url('/assets/fonts/corporate.woff2') format('woff2');
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   /* Color System - shadcn/ui inspired */
@@ -14,11 +25,12 @@
   --slate-800: #1e293b;
   --slate-900: #0f172a;
   
-  --blue-50: #eff6ff;
-  --blue-100: #dbeafe;
-  --blue-500: #3b82f6;
-  --blue-600: #2563eb;
-  --blue-700: #1d4ed8;
+  /* Legacy blues kept for references; not used for primary actions */
+  --blue-50: #eff6ff; /* legacy */
+  --blue-100: #dbeafe; /* legacy */
+  --blue-500: #3b82f6; /* legacy */
+  --blue-600: #2563eb; /* legacy */
+  --blue-700: #1d4ed8; /* legacy */
   
   --emerald-500: #10b981;
   --amber-500: #f59e0b;
@@ -31,21 +43,25 @@
   --card-foreground: var(--slate-900);
   --popover: #ffffff;
   --popover-foreground: var(--slate-900);
-  --primary: var(--slate-900);
+  /* Brand mapping: charcoal + yellow */
+  --primary: #111111; /* charcoal */
   --primary-foreground: #ffffff;
-  --secondary: var(--slate-100);
-  --secondary-foreground: var(--slate-900);
-  --muted: var(--slate-100);
-  --muted-foreground: var(--slate-500);
-  --accent: var(--blue-500);
-  --accent-foreground: #ffffff;
+  --secondary: #FAFAFA;
+  --secondary-foreground: var(--primary);
+  --muted: #F3F3F3;
+  --muted-foreground: var(--slate-600);
+  --accent: #F2B400; /* brand yellow (approx) */
+  --accent-foreground: #111111; /* dark text on yellow */
   --destructive: var(--red-500);
   --destructive-foreground: #ffffff;
-  --border: var(--slate-200);
-  --input: var(--slate-200);
-  --ring: var(--blue-500);
+  --border: #E5E5E5;
+  --input: #E5E5E5;
+  --ring: var(--accent);
   --success: var(--emerald-500);
   --warning: var(--amber-500);
+
+  /* Fonts */
+  --font-brand: 'CorporateBrand', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
   /* Spacing scale */
   --space-1: 0.25rem;
@@ -101,7 +117,7 @@ body {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-brand);
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   background-color: var(--background);
   color: var(--foreground);
@@ -192,6 +208,7 @@ h4 {
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-sm);
+  overflow: hidden; /* keep decorative motif inside header */
 }
 
 .container {
@@ -263,9 +280,9 @@ h4 {
 
 .brand__title {
   font-size: var(--text-xl);
-  font-weight: 600;
+  font-weight: 800;
   letter-spacing: -0.025em;
-  color: var(--foreground);
+  color: var(--primary);
 }
 
 .subtitle {
@@ -411,14 +428,14 @@ h4 {
 
 /* Link Component */
 .link {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: none;
   font-weight: 500;
   transition: color 0.2s ease;
 }
 
 .link:hover {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -927,6 +944,51 @@ h4 {
   align-items: center;
   gap: var(--space-3);
   margin-left: auto;
+}
+
+/* Landing: hero rule underline */
+.rule {
+  width: 120px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 4px;
+  margin-top: var(--space-2);
+}
+
+/* Landing: decorative diamond motif */
+.motif {
+  position: absolute;
+  right: var(--space-6);
+  bottom: var(--space-4);
+  width: 220px;
+  height: 120px;
+  pointer-events: none;
+  opacity: 0.28; /* slightly more visible */
+  mix-blend-mode: normal;
+  z-index: 0;
+  display: none;
+}
+.motif__grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 56px);
+  grid-auto-rows: 56px;
+  gap: 12px;
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+.motif__diamond { border-radius: 10px; box-shadow: none; }
+.motif__diamond--y { background: var(--accent); }
+.motif__diamond--g1 { background: #BDBDBD; }
+.motif__diamond--g2 { background: #D9D9D9; }
+.motif__diamond--g3 { background: #9E9E9E; }
+
+.hero-landing { position: relative; }
+.hero-landing > .brand { position: relative; z-index: 1; }
+
+@media (min-width: 992px) {
+  .motif { display: block; }
 }
 
 /* Responsive Design */

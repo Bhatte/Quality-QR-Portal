@@ -357,9 +357,27 @@ router.delete('/document/:id', async (req, res) => {
     const d = db.getDocumentById(id);
     if (!d) return res.status(404).json({ ok: false, error: 'document_not_found' });
 
-    // Delete document record (file content is stored in DB, so this removes everything)
+    // We'll potentially cascade delete an associated QR if this was the last version
+    const folder = db.getFolderById(d.folder_id);
+    const folderName = folder?.name;
+
+    // Delete the selected document version
     const result = db.deleteDocumentById(id);
-    return res.json({ ok: true, deleted: result.changes });
+
+    let qrDeleted = 0;
+    if (folderName) {
+      // Check if any versions of the same PDF remain in the folder
+      const remaining = db.getDocumentsByFolderAndFileName(folderName, d.file_name) || [];
+      if (remaining.length === 0) {
+        // Compute the QR filename for this PDF and remove all versions of it
+        const base = String(d.file_name).replace(/\.[^.]+$/, '');
+        const qrFileName = `${base}-qr.png`;
+        const out = db.deleteDocumentsByFolderAndFileName(folderName, qrFileName);
+        qrDeleted = out.changes || 0;
+      }
+    }
+
+    return res.json({ ok: true, deleted: result.changes, qrDeleted });
   } catch (err) {
     console.error('Delete error', err);
     return res.status(500).json({ ok: false, error: 'delete_failed', details: String(err.message || err) });
