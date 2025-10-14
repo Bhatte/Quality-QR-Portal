@@ -10,13 +10,13 @@ if (!fs.existsSync(dir)) {
 
 const db = new Database(DB_PATH);
 
-// Configure SQLite for cloud environments - conservative approach
+// Configure SQLite for cloud environments - optimized approach
 try {
-  // Use DELETE journal mode for maximum compatibility
-  db.pragma('journal_mode = DELETE');
-  db.pragma('synchronous = FULL');
-  db.pragma('busy_timeout = 10000'); // 10 second timeout
-  db.pragma('cache_size = -2000'); // 2MB cache
+  // Use WAL journal mode for better concurrent read performance
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL'); // Faster than FULL, still safe
+  db.pragma('busy_timeout = 3000'); // 3 second timeout (better for UI)
+  db.pragma('cache_size = -8000'); // 8MB cache for better performance
   
   // Disable safe integers to avoid BigInt serialization issues
   db.defaultSafeIntegers(false);
@@ -117,6 +117,25 @@ if (!migrated) {
   CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder_id);
   `);
 }
+
+// Folder QR codes table stores generated QR images per folder path
+db.exec(`
+CREATE TABLE IF NOT EXISTS folder_qr_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  folder_id INTEGER NOT NULL,
+  file_name TEXT NOT NULL,
+  file_content BLOB NOT NULL,
+  file_size INTEGER NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT 'image/png',
+  version INTEGER DEFAULT 1,
+  entry_uid TEXT,
+  generated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT,
+  FOREIGN KEY (folder_id) REFERENCES folders(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_folder_qr_codes_folder ON folder_qr_codes(folder_id);
+`);
 
 console.log(`✅ SQLite initialized at: ${DB_PATH}`);
 

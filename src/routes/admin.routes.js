@@ -16,6 +16,34 @@ const upload = multer({
   }
 });
 
+const db = require('../services/database.service');
+const storage = require('../services/storage.service');
+
+function resolvePublicBaseUrl(req) {
+  return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+function normalizeFolderPath(value) {
+  return String(value || '').trim();
+}
+
+function buildFolderQrFileName(folder) {
+  const slug = folder.slug || folder.pathSegments?.slice(-1)[0] || 'folder';
+  return `${slug}-folder-qr.png`;
+}
+
+function encodePathSegments(segments = []) {
+  return segments.map(segment => encodeURIComponent(segment)).join('/');
+}
+
+function performFolderDelete(pathValue) {
+  const result = db.deleteFolderDeep(pathValue);
+  if (!result.foldersDeleted) {
+    return { ok: false, status: 404, body: { ok: false, error: 'folder_not_found' } };
+  }
+  return { ok: true, status: 200, body: { ok: true, deleted: result } };
+}
+
 // Export all ME-QR frame previews to a browsable gallery under /public/frame-probe/{timestamp}/
 // POST /admin/qr/probe/export?link=https://...&size=512
 // Returns { ok, total, successCount, errorCount, galleryUrl, manifestUrl }
@@ -126,10 +154,6 @@ ${rows}
   }
 });
 
- 
-
-const db = require('../services/database.service');
-const storage = require('../services/storage.service');
 // Probe a slice of ME-QR frames to visually identify a desired frame (e.g., "Labor Day"/helmet)
 // GET /admin/qr/probe/frames?link=https://...&start=0&count=12
 // Returns small PNG previews (base64) and their corresponding frame names
@@ -174,6 +198,79 @@ router.get('/qr/probe/frames', async (req, res) => {
   }
 });
 
+// Structured folder information for admin UI (tree view)
+router.get('/folders/tree', (req, res) => {
+  const startTime = Date.now();
+  try {
+    console.log('[ADMIN] Loading folder tree...');
+    const tree = db.getFolderTree();
+    const docCounts = db.getFolderDocumentCountMap();
+    const qrMap = db.getFolderQrPresenceMap();
+
+    const enrich = (node) => {
+      node.documentCount = docCounts.get(node.id) || 0;
+      node.hasQr = qrMap.has(node.id);
+      node.children = node.children || [];
+      node.children.forEach(enrich);
+      return node;
+    };
+
+    const enriched = tree.map(enrich);
+    const duration = Date.now() - startTime;
+    console.log(`[ADMIN] Folder tree loaded: ${enriched.length} folders in ${duration}ms`);
+    return res.json({ ok: true, tree: enriched, debug: { loadTimeMs: duration } });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(`[ADMIN] Folder tree error after ${duration}ms:`, error);
+    return res.status(500).json({ ok: false, error: 'folder_tree_failed', details: String(error.message || error) });
+  }
+});
+
+// Folder detail including children, documents, QR metadata
+router.get('/folders/detail', (req, res) => {
+  try {
+    const pathValue = normalizeFolderPath(req.query.path || '');
+    if (!pathValue) {
+      const children = db.getChildFolders(null);
+      return res.json({
+        ok: true,
+        folder: null,
+        breadcrumbs: [],
+        children,
+        latestDocuments: [],
+        allDocuments: [],
+        qr: null,
+        qrDownloadUrl: null,
+      });
+    }
+
+    const detail = db.getFolderDetail(pathValue);
+    if (!detail) {
+      return res.status(404).json({ ok: false, error: 'folder_not_found' });
+    }
+
+    const allDocuments = db.getAllDocumentsInFolder(detail.folder.path);
+    const publicBase = resolvePublicBaseUrl(req);
+    const qrDownloadUrl = detail.qr
+      ? `${publicBase}/folders/qr.png?path=${encodeURIComponent(detail.folder.path)}`
+      : null;
+
+    return res.json({
+      ok: true,
+      folder: detail.folder,
+      breadcrumbs: detail.breadcrumbs,
+      children: detail.children,
+      latestDocuments: detail.documents,
+      allDocuments,
+      qr: detail.qr,
+      qrDownloadUrl,
+    });
+  } catch (error) {
+    console.error('Folder detail error', error);
+    return res.status(500).json({ ok: false, error: 'folder_detail_failed', details: String(error.message || error) });
+  }
+});
+
 // Echo selected headers for admin routes (debug only)
 router.all('/debug/echo-headers', (req, res) => {
   if (process.env.ENABLE_DEBUG !== 'true') return res.status(404).json({ ok: false, error: 'not_found' });
@@ -200,26 +297,32 @@ router.all('/debug/echo-headers', (req, res) => {
 // Get all documents in a folder (including all versions) - Admin only
 router.get('/folder/:folderName/documents', (req, res) => {
   const { folderName } = req.params;
-  const folder = db.getFolderByName(folderName);
+  const folder = db.getFolderByPath(folderName);
   if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-  const documents = db.getAllDocumentsInFolder(folderName);
+  const documents = db.getAllDocumentsInFolder(folder.path);
   res.json({ ok: true, folder, documents });
 });
 
-// Delete a folder (all documents and records under it)
+// Delete a folder (and all descendants/documents)
+router.delete('/folder', async (req, res) => {
+  try {
+    const pathValue = normalizeFolderPath(req.query.path || req.body?.path || '');
+    if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+    const outcome = performFolderDelete(pathValue);
+    return res.status(outcome.status).json(outcome.body);
+  } catch (err) {
+    console.error('Folder delete error', err);
+    return res.status(500).json({ ok: false, error: 'folder_delete_failed', details: String(err.message || err) });
+  }
+});
+
+// Legacy path deletion support for backward compatibility (single-segment names)
 router.delete('/folder/:name', async (req, res) => {
   try {
-    const name = String(req.params.name || '').trim();
-    if (!name) return res.status(400).json({ ok: false, error: 'name required' });
-
-    const folder = db.getFolderByName(name);
-    if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-
-    // Delete DB documents and folder (files are stored in DB, so no separate cleanup needed)
-    db.deleteDocumentsInFolder(folder.name);
-    const out = db.deleteFolderByName(folder.name);
-
-    return res.json({ ok: true, deleted: out.changes });
+    const pathValue = normalizeFolderPath(req.params.name || '');
+    if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+    const outcome = performFolderDelete(pathValue);
+    return res.status(outcome.status).json(outcome.body);
   } catch (err) {
     console.error('Folder delete error', err);
     return res.status(500).json({ ok: false, error: 'folder_delete_failed', details: String(err.message || err) });
@@ -227,6 +330,28 @@ router.delete('/folder/:name', async (req, res) => {
 });
 
 // Update folder display name (inline rename)
+router.patch('/folder', (req, res) => {
+  try {
+    const pathValue = normalizeFolderPath(req.body?.path || req.query.path || '');
+    const { displayName } = req.body || {};
+    if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+    if (typeof displayName !== 'string' || !displayName.trim()) {
+      return res.status(400).json({ ok: false, error: 'displayName required' });
+    }
+
+    const result = db.updateFolderDisplayName(pathValue, displayName.trim());
+    if (!result.changes) {
+      return res.status(404).json({ ok: false, error: 'folder_not_found' });
+    }
+
+    const updated = db.getFolderByPath(pathValue);
+    return res.json({ ok: true, updated: true, folder: updated });
+  } catch (err) {
+    console.error('Folder rename error', err);
+    return res.status(500).json({ ok: false, error: 'folder_rename_failed', details: String(err.message || err) });
+  }
+});
+
 router.patch('/folder/:name', (req, res) => {
   try {
     const name = String(req.params.name || '').trim();
@@ -234,12 +359,12 @@ router.patch('/folder/:name', (req, res) => {
     const { displayName } = req.body || {};
     if (typeof displayName !== 'string') return res.status(400).json({ ok: false, error: 'displayName required' });
 
-    const folder = db.getFolderByName(name);
+    const folder = db.getFolderByPath(name);
     if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
 
-    const out = db.updateFolderDisplayName(name, displayName.trim() || null);
+    const out = db.updateFolderDisplayName(folder.path, displayName.trim() || null);
     if (!out.changes) return res.json({ ok: true, updated: false });
-    const updated = db.getFolderByName(name);
+    const updated = db.getFolderByPath(folder.path);
     return res.json({ ok: true, updated: true, folder: updated });
   } catch (err) {
     console.error('Folder rename error', err);
@@ -250,29 +375,25 @@ router.patch('/folder/:name', (req, res) => {
 // Create folder
 router.post('/folder', (req, res) => {
   try {
-    const { name, displayName, parentId } = req.body || {};
-    console.log('Creating folder:', { name, displayName, parentId });
-    
-    if (!name) return res.status(400).json({ ok: false, error: 'name required' });
+    const { name, displayName, parentPath, parent, slug } = req.body || {};
+    const label = String(displayName || name || '').trim();
+    const parentPathValue = normalizeFolderPath(parentPath || parent || '');
 
-    const existing = db.getFolderByName(name);
-    if (existing) {
-      console.log('Folder already exists:', existing);
-      return res.json({ ok: true, folder: existing, created: false });
-    }
+    if (!label) return res.status(400).json({ ok: false, error: 'name required' });
 
-    const folder = db.createFolder({ name, displayName: displayName || null, parentId: parentId || null });
+    const folder = db.createFolder({
+      name: label,
+      displayName: displayName || label,
+      parentPath: parentPathValue || null,
+      slug: slug || null,
+    });
+
     console.log('Folder created successfully:', folder);
-    
-    // Verify the folder was actually created by querying it back
-    const verification = db.getFolderByName(name);
-    if (!verification) {
-      console.error('Folder creation verification failed');
-      return res.status(500).json({ ok: false, error: 'folder_creation_verification_failed' });
-    }
-    
     return res.status(201).json({ ok: true, folder, created: true });
   } catch (error) {
+    if (error.message === 'parent_not_found') {
+      return res.status(404).json({ ok: false, error: 'parent_not_found' });
+    }
     console.error('Folder creation error:', error);
     return res.status(500).json({ ok: false, error: 'folder_creation_failed', details: String(error.message || error) });
   }
@@ -281,8 +402,8 @@ router.post('/folder', (req, res) => {
 // Upload a document to a folder
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    const { folder: folderName } = req.body || {};
-    if (!folderName) return res.status(400).json({ ok: false, error: 'folder required' });
+    const folderPath = normalizeFolderPath(req.body?.path || req.body?.folder || '');
+    if (!folderPath) return res.status(400).json({ ok: false, error: 'folder required' });
     if (!req.file) return res.status(400).json({ ok: false, error: 'file required' });
 
     // Validate file type and size
@@ -305,9 +426,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     // Ensure folder exists
-    let folder = db.getFolderByName(folderName);
+    const folder = db.getFolderByPath(folderPath);
     if (!folder) {
-      folder = db.createFolder({ name: folderName });
+      return res.status(404).json({ ok: false, error: 'folder_not_found' });
     }
 
     // Sanitize filename
@@ -328,7 +449,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       notes: null
     });
 
-    const portalUrl = `/docs/${encodeURIComponent(folder.name)}/${encodeURIComponent(origName)}`;
+    const encodedFolderPath = encodePathSegments(folder.pathSegments || []);
+    const portalUrl = `/docs/${encodedFolderPath}/${encodeURIComponent(origName)}`;
     return res.status(201).json({ 
       ok: true, 
       document: {
@@ -359,20 +481,20 @@ router.delete('/document/:id', async (req, res) => {
 
     // We'll potentially cascade delete an associated QR if this was the last version
     const folder = db.getFolderById(d.folder_id);
-    const folderName = folder?.name;
+    const folderPath = folder?.path;
 
     // Delete the selected document version
     const result = db.deleteDocumentById(id);
 
     let qrDeleted = 0;
-    if (folderName) {
+    if (folderPath) {
       // Check if any versions of the same PDF remain in the folder
-      const remaining = db.getDocumentsByFolderAndFileName(folderName, d.file_name) || [];
+      const remaining = db.getDocumentsByFolderAndFileName(folderPath, d.file_name) || [];
       if (remaining.length === 0) {
         // Compute the QR filename for this PDF and remove all versions of it
         const base = String(d.file_name).replace(/\.[^.]+$/, '');
         const qrFileName = `${base}-qr.png`;
-        const out = db.deleteDocumentsByFolderAndFileName(folderName, qrFileName);
+        const out = db.deleteDocumentsByFolderAndFileName(folderPath, qrFileName);
         qrDeleted = out.changes || 0;
       }
     }
@@ -384,16 +506,92 @@ router.delete('/document/:id', async (req, res) => {
   }
 });
 
+// Generate or regenerate a folder-level QR code
+router.post('/qr/folder', async (req, res) => {
+  try {
+    const pathValue = normalizeFolderPath(req.body?.path || '');
+    if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+
+    const detail = db.getFolderDetail(pathValue);
+    if (!detail) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+
+    const folder = detail.folder;
+    const encodedPath = encodePathSegments(folder.pathSegments || []);
+    const publicBase = resolvePublicBaseUrl(req);
+    const link = `${publicBase}/folder.html?path=${encodeURIComponent(folder.path)}`;
+
+    const payload = {
+      link,
+      title: req.body?.title || folder.displayName,
+      qrOptions: req.body?.options?.qrOptions || {},
+    };
+
+    if (req.body?.options?.qrFrame) {
+      payload.qrFrame = req.body.options.qrFrame;
+    }
+
+    const result = await meqr.createLinkQrPng(payload);
+
+    const notes = {
+      source: folder.path,
+      entryUID: result.entryUID || null,
+      generatedAt: new Date().toISOString(),
+    };
+
+    const fileName = buildFolderQrFileName(folder);
+    const saved = db.saveFolderQr({
+      folderId: folder.id,
+      fileName,
+      fileContent: result.pngBuffer,
+      entryUid: result.entryUID || null,
+      notes,
+    });
+
+    const downloadUrl = `/folders/qr.png?path=${encodeURIComponent(folder.path)}`;
+
+    return res.status(201).json({
+      ok: true,
+      qr: {
+        fileName,
+        version: saved.version,
+        entryUid: saved.entryUid || null,
+        url: downloadUrl,
+        folder: folder.path,
+      },
+    });
+  } catch (err) {
+    console.error('Folder QR generate error', err);
+    const status = err.status && Number(err.status) >= 400 && Number(err.status) < 500 ? 502 : 500;
+    return res.status(status).json({ ok: false, error: 'folder_qr_generation_failed', details: String(err.message || err) });
+  }
+});
+
+router.delete('/qr/folder', (req, res) => {
+  try {
+    const pathValue = normalizeFolderPath(req.body?.path || req.query.path || '');
+    if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+    const result = db.deleteFolderQr(pathValue);
+    if (!result.changes) {
+      return res.status(404).json({ ok: false, error: 'qr_not_found' });
+    }
+    return res.json({ ok: true, deleted: result.changes });
+  } catch (err) {
+    console.error('Folder QR delete error', err);
+    return res.status(500).json({ ok: false, error: 'folder_qr_delete_failed', details: String(err.message || err) });
+  }
+});
+
 // Generate a QR code (PNG) for a given PDF in a folder and store it alongside as {name}-qr.png
 router.post('/qr/link', async (req, res) => {
   try {
     const { folder, fileName, options, title } = req.body || {};
     if (!folder || !fileName) return res.status(400).json({ ok: false, error: 'folder_and_fileName_required' });
 
-    const f = db.getFolderByName(String(folder));
+    const folderPath = normalizeFolderPath(String(folder));
+    const f = db.getFolderByPath(folderPath);
     if (!f) return res.status(404).json({ ok: false, error: 'folder_not_found' });
 
-    const doc = db.getDocumentByFolderAndFileName(String(folder), String(fileName));
+    const doc = db.getDocumentByFolderAndFileName(folderPath, String(fileName));
     if (!doc) return res.status(404).json({ ok: false, error: 'document_not_found' });
 
     // Ensure it's a PDF (defensive)
@@ -401,8 +599,9 @@ router.post('/qr/link', async (req, res) => {
     if (!isPdf) return res.status(400).json({ ok: false, error: 'pdf_only' });
 
     // Build absolute link for QR using PUBLIC_BASE_URL or request origin
-    const publicBase = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-    const link = `${publicBase}/docs/${encodeURIComponent(folder)}/${encodeURIComponent(fileName)}`;
+    const publicBase = resolvePublicBaseUrl(req);
+    const encodedFolderPath = encodePathSegments(f.pathSegments || []);
+    const link = `${publicBase}/docs/${encodedFolderPath}/${encodeURIComponent(fileName)}`;
 
     // Create ME-QR PNG
     const payload = {
@@ -437,7 +636,7 @@ router.post('/qr/link', async (req, res) => {
       notes
     });
 
-    const downloadUrl = `/docs/${encodeURIComponent(folder)}/${encodeURIComponent(qrFileName)}`;
+    const downloadUrl = `/docs/${encodedFolderPath}/${encodeURIComponent(qrFileName)}`;
     return res.status(201).json({
       ok: true,
       qr: {

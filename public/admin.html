@@ -25,19 +25,24 @@
       padding: var(--space-8);
       text-align: center;
       color: var(--muted-foreground);
-      background: var(--muted)/30%;
-      transition: all 0.2s ease;
+      background: var(--muted)/20%;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       cursor: pointer;
+      position: relative;
+      overflow: hidden;
     }
     #dropZone:hover {
       border-color: var(--accent);
-      background: var(--accent)/5%;
+      background: var(--accent)/8%;
+      color: var(--accent-foreground);
+      box-shadow: var(--shadow-sm);
     }
     #dropZone.drag {
       border-color: var(--accent);
-      background: var(--accent)/10%;
+      background: var(--accent)/15%;
       color: var(--accent);
       transform: scale(1.02);
+      box-shadow: var(--shadow-md);
     }
     #portalUrl {
       word-break: break-all;
@@ -104,40 +109,80 @@
 
   <main class="container admin-grid" role="main">
     <aside class="admin-card" aria-label="Folders management">
-      <div class="flex justify-between items-center mb-6">
-        <h2 class="text-xl font-semibold">Folders</h2>
-      </div>
-      
-      <div class="mb-6">
-        <label for="folderName" class="block text-sm font-medium mb-2">Create New Folder</label>
-        <div class="admin-row">
-          <input 
-            id="folderName" 
-            class="admin-input flex-1" 
-            placeholder="e.g. welding, testing, inspection" 
-            aria-describedby="folderName-help"
-          />
-          <button id="createFolderBtn" class="btn btn--primary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <section class="folder-panel">
+        <header class="folder-panel__header">
+          <h2 class="text-xl font-semibold">Folders</h2>
+        </header>
+
+        <form id="createFolderForm" class="folder-create" autocomplete="off">
+          <div class="form-group">
+            <label for="folderName" class="form-label">Folder Name</label>
+            <input
+              id="folderName"
+              class="admin-input"
+              placeholder="e.g. Welding, Testing, Inspection"
+              aria-describedby="folderName-help"
+              required
+            />
+            <p id="folderName-help" class="text-xs text-muted mt-2">Choose a short, descriptive name. Avoid special characters.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="folderParent" class="form-label">Location</label>
+            <select id="folderParent" class="admin-input" aria-describedby="folderParent-help">
+              <option value="">Root (top level)</option>
+            </select>
+            <p id="folderParent-help" class="text-xs text-muted mt-2">New folders are created inside the selected location. Default is the current folder.</p>
+          </div>
+
+          <button id="createFolderBtn" class="btn btn--primary w-full" type="submit">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            Create
+            <span>Create Folder</span>
           </button>
+        </form>
+
+        <div class="folder-panel__divider" aria-hidden="true"></div>
+
+        <div class="folder-explorer" role="region" aria-label="Folder explorer">
+          <div class="form-group">
+            <label for="folderSearch" class="form-label">Search Folders</label>
+            <div class="input-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input id="folderSearch" type="search" class="admin-input input-with-icon" placeholder="Filter by name..." autocomplete="off" />
+            </div>
+          </div>
+
+          <div class="folder-tree-toolbar">
+            <span id="folderCountLabel" class="text-xs text-muted">0 folders</span>
+            <div class="folder-tree-toolbar__actions">
+              <button type="button" id="collapseAllFolders" class="btn btn--ghost btn--sm" aria-label="Collapse all folders">Collapse all</button>
+              <button type="button" id="expandAllFolders" class="btn btn--ghost btn--sm" aria-label="Expand all folders">Expand all</button>
+            </div>
+          </div>
+
+          <div id="folderTreeContainer" class="folder-tree-container" role="tree">
+            <div id="folderTreeEmpty" class="folder-tree-empty text-sm text-muted">No folders yet. Create your first folder above.</div>
+            <ul id="folderTree" class="folder-tree" aria-label="Folder navigator"></ul>
+          </div>
         </div>
-        <p id="folderName-help" class="text-xs text-muted mt-1">Folder names should be descriptive and lowercase</p>
-      </div>
-      
-      <div class="mb-4">
-        <h3 class="text-sm font-medium mb-2">Existing Folders</h3>
-        <div class="relative">
-          <ul id="folders" class="list" style="max-height:400px;overflow-y:auto;"></ul>
-        </div>
-      </div>
+      </section>
     </aside>
 
     <section class="admin-card">
       <h2 class="text-xl font-semibold mb-6">Document Management</h2>
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <p class="text-xs text-muted mb-1">Current Folder</p>
+          <p id="currentFolderLabel" class="text-sm font-semibold">Select a folder to begin</p>
+        </div>
+        <p id="currentFolderDocCount" class="text-xs text-muted">0 documents</p>
+      </div>
       
       <!-- Upload Section -->
       <div class="mb-8">
@@ -212,7 +257,22 @@
           </div>
         </div>
       </div>
-      
+
+      <div id="folderQrSection" class="folder-qr-card" style="display:none">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <p class="text-sm font-medium">Folder QR</p>
+            <p id="folderQrStatus" class="text-xs text-muted">No QR generated yet.</p>
+          </div>
+          <div class="flex gap-2">
+            <button id="generateFolderQr" class="btn btn--primary btn--sm" type="button">Generate Folder QR</button>
+            <a id="downloadFolderQr" class="btn btn--outline btn--sm" href="#" target="_blank" download style="display:none">Download</a>
+            <button id="removeFolderQr" class="btn btn--destructive btn--sm" type="button" style="display:none">Remove</button>
+          </div>
+        </div>
+        <div id="folderQrPreview" class="folder-qr-preview text-muted text-sm">Generate a folder QR code to preview and download it here.</div>
+      </div>
+
       <!-- Documents Section -->
       <div>
         <div class="flex justify-between items-center mb-4">

@@ -18,6 +18,7 @@
           <h1 class="brand__title">Jones Engineering — Quality Portal</h1>
           <div class="rule" aria-hidden="true"></div>
           <p id="subtitle" class="subtitle">Loading folder...</p>
+          <nav id="breadcrumbs" class="breadcrumbs" aria-label="Breadcrumb"></nav>
         </div>
         <div class="flex items-center gap-3" style="margin-left: auto;">
           <a href="/" class="btn btn--outline btn--sm">
@@ -45,15 +46,26 @@
   <main class="container">
     <section class="mb-6">
       <div class="search">
-        <input 
-          id="search" 
-          class="input" 
-          type="search" 
-          placeholder="Search documents in this folder..." 
-          aria-label="Search documents"
-        />
+        <div class="input-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input 
+            id="search" 
+            class="input input-with-icon" 
+            type="search" 
+            placeholder="Search documents in this folder..." 
+            aria-label="Search documents"
+          />
+        </div>
         <span id="badge" class="badge" style="display:none"></span>
       </div>
+    </section>
+
+    <section id="subfolders-section" class="mb-6" style="display:none">
+      <h2 class="text-lg font-semibold mb-3">Subfolders</h2>
+      <div id="subfolders" class="grid" role="region" aria-label="Subfolders"></div>
     </section>
 
     <section>

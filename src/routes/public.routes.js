@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const db = require('../services/database.service');
 
+function normalizeFolderPath(value) {
+  return String(value || '').trim();
+}
+
+
+function decodeDocPathParameter(param) {
+  const raw = String(param || '');
+  const parts = raw.split('/').filter(Boolean);
+  return parts.map(part => decodeURIComponent(part));
+}
+
 // Health/Readiness
 router.get('/healthz', (req, res) => {
   res.json({ ok: true, status: 'healthy' });
@@ -447,65 +458,126 @@ router.post('/debug/full-test', async (req, res) => {
   }
 });
 
-// Home: list folders
+// Home: list top-level folders
 router.get('/', (req, res) => {
-  const folders = db.getFolders();
+  const folders = db.getChildFolders(null);
   res.json({ ok: true, folders });
 });
 
-// List folders
+// List top-level folders (/folders retained for backward compatibility)
 router.get('/folders', (req, res) => {
-  const folders = db.getFolders();
+  const folders = db.getChildFolders(null);
   res.json({ ok: true, folders });
+});
+
+// Hierarchical folder tree (public view)
+router.get('/folders/tree', (req, res) => {
+  const tree = db.getFolderTree();
+  res.json({ ok: true, tree });
+});
+
+// Folder detail (children + latest documents)
+router.get('/folders/detail', (req, res) => {
+  const pathValue = normalizeFolderPath(req.query.path || '');
+  if (!pathValue) {
+    const children = db.getChildFolders(null);
+    return res.json({ ok: true, folder: null, breadcrumbs: [], children, documents: [] });
+  }
+
+  const detail = db.getFolderDetail(pathValue);
+  if (!detail) {
+    return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  }
+
+  return res.json({
+    ok: true,
+    folder: detail.folder,
+    breadcrumbs: detail.breadcrumbs,
+    children: detail.children,
+    documents: detail.documents,
+    qr: detail.qr ? { version: detail.qr.version, entryUid: detail.qr.entryUid || null } : null,
+  });
 });
 
 // List documents in a folder
 router.get('/folder/:folderName', (req, res) => {
-  const { folderName } = req.params;
-  const folder = db.getFolderByName(folderName);
-  if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-  const documents = db.getDocumentsInFolder(folderName);
-  res.json({ ok: true, folder, documents });
+  const detail = db.getFolderDetail(req.params.folderName);
+  if (!detail) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  return res.json({ ok: true, folder: detail.folder, breadcrumbs: detail.breadcrumbs, children: detail.children, documents: detail.documents });
 });
 
-// Serve the latest version of a document in a folder (MUST come before /docs/:folder route)
-router.get('/docs/:folder/:fileName', (req, res) => {
-  const { folder, fileName } = req.params;
-  const doc = db.getDocumentByFolderAndFileName(folder, fileName);
+router.get('/folder', (req, res) => {
+  const pathValue = normalizeFolderPath(req.query.path || '');
+  if (!pathValue) {
+    const children = db.getChildFolders(null);
+    return res.json({ ok: true, folder: null, breadcrumbs: [], children, documents: [] });
+  }
+  const detail = db.getFolderDetail(pathValue);
+  if (!detail) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  return res.json({ ok: true, folder: detail.folder, breadcrumbs: detail.breadcrumbs, children: detail.children, documents: detail.documents });
+});
+
+// Serve latest version of a document using hierarchical path (/docs/<folder path>/<file>)
+router.get(/^\/docs\/(.+)/, (req, res) => {
+  const rawDocPath = String(req.params[0] || '');
+  const parts = decodeDocPathParameter(rawDocPath);
+  if (parts.length < 2) {
+    return res.status(400).json({ ok: false, error: 'invalid_document_path' });
+  }
+
+  const fileName = parts.pop();
+  const folderPath = normalizeFolderPath(parts.join('/'));
+  const doc = db.getDocumentByFolderAndFileName(folderPath, fileName);
   if (!doc) return res.status(404).json({ ok: false, error: 'document_not_found' });
-  
-  // Get the file content
+
   const content = db.getDocumentContent(doc.id);
   if (!content) return res.status(404).json({ ok: false, error: 'file_content_not_found' });
-  
-  // Set appropriate headers for PDF serving
+
   res.setHeader('Content-Type', content.mime_type);
   res.setHeader('Content-Length', content.file_size);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(content.file_name)}"`);
-  res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  
+
   return res.send(content.file_content);
 });
 
-// Friendly path: GET /docs/:folder -> list documents in folder (MUST come after /docs/:folder/:fileName)
-router.get('/docs/:folder', (req, res) => {
-  const { folder } = req.params;
-  const f = db.getFolderByName(folder);
-  if (!f) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-  const documents = db.getDocumentsInFolder(folder);
-  return res.json({ ok: true, folder: f, documents });
+// List documents using query parameter (?path=...)
+router.get('/docs', (req, res) => {
+  const pathValue = normalizeFolderPath(req.query.path || '');
+  if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+  const folder = db.getFolderByPath(pathValue);
+  if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  const documents = db.getDocumentsInFolder(folder.path);
+  return res.json({ ok: true, folder, documents });
+});
+
+// Serve stored folder QR image (if generated by admin)
+router.get('/folders/qr.png', (req, res) => {
+  const pathValue = normalizeFolderPath(req.query.path || '');
+  if (!pathValue) return res.status(400).json({ ok: false, error: 'path_required' });
+  const qr = db.getFolderQr(pathValue, { includeContent: true });
+  if (!qr || !qr.fileContent) {
+    return res.status(404).json({ ok: false, error: 'qr_not_found' });
+  }
+
+  res.setHeader('Content-Type', qr.mimeType || 'image/png');
+  res.setHeader('Content-Length', qr.fileSize);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(qr.fileName)}"`);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  return res.send(qr.fileContent);
 });
 
 // Friendly path: GET /:folderName -> list documents (avoid reserved paths)
 router.get('/:folderName', (req, res, next) => {
-  const reserved = new Set(['folders', 'docs', 'admin']);
+  const reserved = new Set(['folders', 'docs', 'admin', 'healthz', 'readyz', 'folder']);
   const { folderName } = req.params;
   if (reserved.has(folderName)) return next();
-  const folder = db.getFolderByName(folderName);
-  if (!folder) return res.status(404).json({ ok: false, error: 'folder_not_found' });
-  const documents = db.getDocumentsInFolder(folderName);
-  return res.json({ ok: true, folder, documents });
+  const detail = db.getFolderDetail(folderName);
+  if (!detail) return res.status(404).json({ ok: false, error: 'folder_not_found' });
+  return res.json({ ok: true, folder: detail.folder, breadcrumbs: detail.breadcrumbs, children: detail.children, documents: detail.documents });
 });
 
 module.exports = router;

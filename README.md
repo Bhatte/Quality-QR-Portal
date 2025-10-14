@@ -11,6 +11,7 @@ The QR Portal uses a **single SQLite database** to store both metadata and docum
 - **Embedded File Storage**: All PDF documents stored securely as BLOBs in SQLite database
 - **Permanent Portal URLs**: Stable URLs that never break, served through application security layer
 - **Admin Interface**: Drag-and-drop upload with folder organization and version management
+- **Nested Folders**: Create multi-level folder structures with per-folder QR codes for quick navigation
 - **Local Authentication**: Simple session-based login using email allowlist + shared access code
 - **Mobile-Optimized**: Responsive design for field access on mobile devices
 - **Single File Deployment**: Entire application state contained in one SQLite database file
@@ -144,7 +145,12 @@ See `DEPLOY.md` for end‑to‑end GitHub‑linked CI/CD instructions and post�
 - `GET /` - List all folders
 - `GET /folders` - List all folders (JSON)
 - `GET /folder/:folderName` - List documents in folder
+- `GET /folder?path=...` - Folder detail with subfolders and documents
 - `GET /docs/:folder/:fileName` - Serve document file (latest version)
+- `GET /docs?path=...` - List documents within a specific folder path
+- `GET /folders/tree` - Public folder hierarchy for navigation UI
+- `GET /folders/detail?path=...` - Public folder detail including child folders
+- `GET /folders/qr.png?path=...` - Fetch stored folder QR image (if available)
 - `GET /healthz` - Health check
 - `GET /readyz` - Readiness check
 
@@ -157,6 +163,10 @@ See `DEPLOY.md` for end‑to‑end GitHub‑linked CI/CD instructions and post�
 - `POST /admin/upload` - Upload document (multipart/form-data)
 - `DELETE /admin/document/:id` - Delete specific document version
 - `POST /admin/qr/link` - Generate a QR PNG for a specific PDF and store alongside it
+- `GET /admin/folders/tree` - Return hierarchical folder tree for admin UI
+- `GET /admin/folders/detail` - Folder metadata, children, document list, and QR state
+- `POST /admin/qr/folder` - Generate or refresh QR code for a folder path
+- `DELETE /admin/qr/folder` - Remove stored folder QR code
 - Probe utilities (feature‑flagged; require `ENABLE_PROBE=true`):
   - `GET /admin/qr/probe/frames?link=...&start=0&count=12` - Base64 previews to identify frames
   - `POST /admin/qr/probe/export?link=...&size=512` - Writes gallery to `public/frame-probe/<timestamp>/`
@@ -182,6 +192,20 @@ CREATE TABLE documents (
   version INTEGER DEFAULT 1,
   uploaded_by TEXT,
   uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT,
+  FOREIGN KEY (folder_id) REFERENCES folders(id)
+);
+
+CREATE TABLE folder_qr_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  folder_id INTEGER NOT NULL,
+  file_name TEXT NOT NULL,
+  file_content BLOB NOT NULL,
+  file_size INTEGER NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT 'image/png',
+  version INTEGER DEFAULT 1,
+  entry_uid TEXT,
+  generated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   notes TEXT,
   FOREIGN KEY (folder_id) REFERENCES folders(id)
 );
